@@ -1,0 +1,9 @@
+**/node_modules
+**/.venv
+**/dist
+**/data
+**/.env
+**/__pycache__
+**/.pytest_cache
+**/companion/build
+**/companion/dist

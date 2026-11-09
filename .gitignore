@@ -1,0 +1,10 @@
+.venv/
+companion/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+data/
+.env
+companion/build/
+companion/dist/
+*.spec.bak

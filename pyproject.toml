@@ -1,0 +1,18 @@
+[project]
+name = "woowangthon-backend"
+version = "0.1.0"
+description = "AI 우왕톤 학습 도우미 백엔드"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.pyright]
+include = ["app", "tests", "companion"]
+exclude = ["**/.venv", "**/build", "**/dist"]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.14"
+typeCheckingMode = "basic"
+reportMissingImports = "warning"

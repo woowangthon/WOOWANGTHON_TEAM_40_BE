@@ -1,0 +1,6 @@
+pywebview>=6.0
+pyinstaller>=6.10
+watchdog>=5.0
+pywin32>=308
+requests>=2.32
+pillow>=10.4

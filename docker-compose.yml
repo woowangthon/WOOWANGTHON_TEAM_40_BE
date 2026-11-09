@@ -1,0 +1,20 @@
+# 동아리방 컴퓨터 배포용. frontend 와 backend 저장소를 같은 폴더 아래에 둔 상태에서 실행한다.
+#   docker compose up -d --build
+# 비밀값은 backend/.env 에 둔다. 이 파일과 .env 는 커밋하지 않는다.
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      CORS_ORIGINS: ""
+    volumes:
+      - app-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  app-data:
