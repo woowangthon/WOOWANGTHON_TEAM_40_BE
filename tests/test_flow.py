@@ -213,8 +213,16 @@ def test_full_flow(client: TestClient, fake_ai: FakeAI) -> None:
     assert detail["checks"][0]["item"]["answer"] == "모범 답안"
     assert len(detail["messages"]) == 4
 
+    r = client.get("/api/assignments/dashboard", headers=prof)
+    assert r.status_code == 200, r.text
+    dash = r.json()
+    assert dash["assignment_count"] == 1 and dash["student_count"] == 1
+    assert dash["rows"][0]["submitted_count"] == 1 and dash["rows"][0]["ungraded_count"] == 1
+    assert dash["ungraded_count"] == 1 and dash["signal_count"] == 2
+
     r = client.put(f"/api/assignments/{aid}/students/{eid}/grade", json={"score": 88, "comment": "좋다"}, headers=prof)
     assert r.status_code == 200 and r.json()["score"] == 88
+    assert client.get("/api/assignments/dashboard", headers=prof).json()["ungraded_count"] == 0
 
     # 학생은 교수 API를 못 쓴다
     r = client.get(f"/api/assignments/{aid}/overview", headers=stu)
@@ -236,13 +244,16 @@ def test_ai_unavailable_returns_503(client: TestClient) -> None:
     assert r.status_code == 200
     r = client.post(f"/api/enrollments/{eid}/learning/chat", json={"message": "안녕"}, headers=stu)
     assert r.status_code == 503
-    assert "ANTHROPIC_API_KEY" in r.json()["detail"]
+    assert "GEMINI_API_KEY" in r.json()["detail"]
 
 
 def test_publish_requires_complete_setup(client: TestClient) -> None:
     prof = _auth(client, "p3@test.com", "professor")
     r = client.post("/api/assignments", json={"title": "빈 과제"}, headers=prof)
     aid = r.json()["id"]
+    r = client.get(f"/api/assignments/{aid}/publish-check", headers=prof)
+    assert r.status_code == 200 and r.json()["ok"] is False
+    assert any("역량이 없다" in p for p in r.json()["problems"])
     r = client.post(f"/api/assignments/{aid}/publish", headers=prof)
     assert r.status_code == 400
     assert "역량이 없다" in r.json()["detail"]

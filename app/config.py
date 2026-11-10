@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -23,6 +25,11 @@ class Settings(BaseSettings):
     frontend_dist: Path = BASE_DIR.parent / "frontend" / "dist"
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
+    # AI 공급자. gemini 또는 anthropic. 사고 수준은 아래 ai_effort_* 값을 그대로 쓴다
+    ai_provider: Literal["gemini", "anthropic"] = "gemini"
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-3.5-flash-lite"
+    ai_timeout_seconds: int = 60
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-5-5"
     ai_effort_chat: str = "medium"
@@ -40,6 +47,22 @@ class Settings(BaseSettings):
     max_material_mb: int = 20
     max_version_mb: int = 30
     companion_snapshot_seconds: int = 60
+
+    @field_validator("database_url")
+    @classmethod
+    def _sqlite_relative_to_backend(cls, v: str) -> str:
+        """sqlite:///./data/app.db 같은 상대 경로는 실행 위치가 아니라 backend 폴더 기준으로 푼다."""
+        prefix = "sqlite:///"
+        if not v.startswith(prefix):
+            return v
+        raw = v[len(prefix) :]
+        if raw in ("", ":memory:") or raw.startswith("/") or Path(raw).is_absolute():
+            return v
+        return prefix + (BASE_DIR / raw).resolve().as_posix()
+
+    @property
+    def ai_model(self) -> str:
+        return self.gemini_model if self.ai_provider == "gemini" else self.anthropic_model
 
     def cors_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

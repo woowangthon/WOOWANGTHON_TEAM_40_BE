@@ -22,6 +22,8 @@ from ..schemas import (
     CompetencyDraftOut,
     CompetencyIn,
     CompetencyOut,
+    DashboardOut,
+    DashboardRow,
     ItemDraftIn,
     ItemDraftOut,
     ItemIn,
@@ -51,6 +53,51 @@ def list_assignments(user: Professor, db: DB) -> list[AssignmentBrief]:
         .all()
     )
     return [assignment_brief(a) for a in rows]
+
+
+@router.get("/dashboard", response_model=DashboardOut)
+def dashboard(user: Professor, db: DB) -> DashboardOut:
+    """교수 대시보드 홈. 과제마다 단계 분포와 채점 대기와 의심 신호 수를 모은다."""
+    rows_out: list[DashboardRow] = []
+    student_ids: set[int] = set()
+    total_ungraded = total_signals = 0
+    assignments = (
+        db.query(Assignment)
+        .filter(Assignment.professor_id == user.id)
+        .order_by(Assignment.created_at.desc())
+        .all()
+    )
+    for a in assignments:
+        counts = {"pre": 0, "learning": 0, "task": 0, "post": 0, "done": 0}
+        submitted = ungraded = signals = 0
+        for e in a.enrollments:
+            counts[e.stage] = counts.get(e.stage, 0) + 1
+            student_ids.add(e.student_id)
+            has_submission = any(t.status == "submitted" for t in e.task_attempts)
+            if has_submission:
+                submitted += 1
+                if e.grade is None or e.grade.score is None:
+                    ungraded += 1
+            signals += len(e.signals)
+        total_ungraded += ungraded
+        total_signals += signals
+        rows_out.append(
+            DashboardRow(
+                **assignment_brief(a).model_dump(),
+                stage_counts=counts,
+                submitted_count=submitted,
+                ungraded_count=ungraded,
+                signal_count=signals,
+            )
+        )
+    return DashboardOut(
+        assignment_count=len(assignments),
+        open_count=sum(1 for a in assignments if a.status == "open"),
+        student_count=len(student_ids),
+        ungraded_count=total_ungraded,
+        signal_count=total_signals,
+        rows=rows_out,
+    )
 
 
 @router.post("", response_model=AssignmentOut, status_code=status.HTTP_201_CREATED)
@@ -319,6 +366,13 @@ def _publish_problems(a: Assignment) -> list[str]:
     if a.tool_slot == 3 and not (a.tool_config or {}).get("program"):
         problems.append("자리 3 과제는 프로그램 이름이 필요하다")
     return problems
+
+
+@router.get("/{assignment_id}/publish-check")
+def publish_check(a: OwnedAssignment) -> dict[str, object]:
+    """공개 전에 빠진 것을 알려 준다. 공개하지는 않는다."""
+    problems = _publish_problems(a)
+    return {"ok": not problems, "problems": problems, "status": a.status, "join_code": a.join_code}
 
 
 @router.post("/{assignment_id}/publish", response_model=AssignmentOut)

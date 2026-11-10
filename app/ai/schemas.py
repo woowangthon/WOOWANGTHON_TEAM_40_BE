@@ -1,4 +1,4 @@
-"""AI 구조화 출력 스키마. Claude API의 output_config.format으로 강제된다.
+"""AI 구조화 출력 스키마. Gemini는 response_schema로, Claude는 output_config.format으로 강제된다.
 
 구조화 출력이 지원하는 JSON 스키마 범위를 지키기 위해 숫자 범위 제약은 두지 않고 코드에서 자른다.
 """

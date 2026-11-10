@@ -161,6 +161,22 @@ class AssignmentBrief(BaseModel):
     enrollment_count: int = 0
 
 
+class DashboardRow(AssignmentBrief):
+    stage_counts: dict[str, int]
+    submitted_count: int
+    ungraded_count: int
+    signal_count: int
+
+
+class DashboardOut(BaseModel):
+    assignment_count: int
+    open_count: int
+    student_count: int
+    ungraded_count: int
+    signal_count: int
+    rows: list[DashboardRow]
+
+
 class AssignmentOut(AssignmentBrief):
     description: str
     attachment_name: str
@@ -385,7 +401,14 @@ class TaskStateOut(BaseModel):
     attachment_name: str
     student_rules: list[str]
     companion_connected: bool
+    # 보조 프로그램이 서버에 마지막으로 접속한 시각과, 그 시각이 최근이어서 지금 돌고 있다고 볼 수 있는지
+    companion_last_seen: datetime | None = None
+    companion_live: bool = False
     google_connected: bool
+    google_account: str = ""
+    google_doc_id: str = ""
+    google_doc_name: str = ""
+    google_last_synced_at: datetime | None = None
 
 
 # ---------- 보조 프로그램 ----------

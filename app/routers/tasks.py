@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -24,6 +25,8 @@ from .common import ai_error, attempt_out, deadline_passed, message_out, student
 router = APIRouter(prefix="/api/enrollments/{enrollment_id}/task", tags=["task"])
 
 TASK_STAGES = {"task", "post", "done"}
+# 보조 프로그램의 AI 창은 30초마다 서버에 접속한다. 이 시간 안에 접속이 있었으면 지금 돌고 있다고 본다
+COMPANION_LIVE_WINDOW = timedelta(seconds=120)
 
 
 class SubmitOut(BaseModel):
@@ -54,8 +57,9 @@ def task_state(db: Session, e: Enrollment) -> TaskStateOut:
     attempt = current_attempt(e)
     attempt_no = attempt.attempt_no if attempt else (e.task_attempts[-1].attempt_no if e.task_attempts else 0)
     msgs = [m for m in e.messages if m.stage == "task" and m.attempt_no == attempt_no]
-    companion = db.query(CompanionToken).filter(CompanionToken.enrollment_id == e.id).count() > 0
-    google = db.query(GoogleConnection).filter(GoogleConnection.enrollment_id == e.id).count() > 0
+    tokens = db.query(CompanionToken).filter(CompanionToken.enrollment_id == e.id).all()
+    last_seen = max((x.last_seen for x in tokens if x.last_seen), default=None)
+    google = db.query(GoogleConnection).filter(GoogleConnection.enrollment_id == e.id).first()
     return TaskStateOut(
         enrollment_id=e.id,
         stage=e.stage,
@@ -72,8 +76,14 @@ def task_state(db: Session, e: Enrollment) -> TaskStateOut:
         description=a.description,
         attachment_name=a.attachment_name,
         student_rules=student_rules(a),
-        companion_connected=companion,
-        google_connected=google,
+        companion_connected=bool(tokens),
+        companion_last_seen=last_seen,
+        companion_live=last_seen is not None and utcnow() - last_seen < COMPANION_LIVE_WINDOW,
+        google_connected=google is not None,
+        google_account=google.account_email if google else "",
+        google_doc_id=google.doc_id if google else "",
+        google_doc_name=google.doc_name if google else "",
+        google_last_synced_at=google.last_synced_at if google else None,
     )
 
 

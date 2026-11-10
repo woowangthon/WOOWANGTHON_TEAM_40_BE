@@ -17,9 +17,9 @@ AI 우왕톤 출품작의 서버다. 주제는 "AI는 동료가 될 수 있는�
 
 | 선택 | 이유 |
 |---|---|
-| Python FastAPI와 SQLAlchemy와 SQLite | 팀이 Python에 익숙하고, Anthropic 공식 SDK와 파일 텍스트 추출 라이브러리를 같은 언어로 쓸 수 있다. SQLite는 설치 없이 돌고 심사 규모의 데이터에 충분하다. DATABASE_URL을 바꾸면 PostgreSQL로 옮길 수 있다. |
+| Python FastAPI와 SQLAlchemy와 SQLite | 팀이 Python에 익숙하고, Google과 Anthropic의 공식 AI SDK와 파일 텍스트 추출 라이브러리를 같은 언어로 쓸 수 있다. SQLite는 설치 없이 돌고 심사 규모의 데이터에 충분하다. DATABASE_URL을 바꾸면 PostgreSQL로 옮길 수 있다. |
 | React와 Vite | 과제 단계의 Monaco 편집기와 sql.js, Document Picture-in-Picture 같은 브라우저 기능을 다루기 쉽다. 빌드 결과를 FastAPI가 같이 서비스해 배포 URL이 하나다. |
-| Claude API, 모델 claude-sonnet-5-5 | 자체 모델 없이 시스템 프롬프트와 구조화 출력으로 산파술 응답을 만든다. 파인튜닝은 하지 않는다. |
+| Gemini API 무료 등급, 모델 gemini-3.5-flash-lite | 유료 API를 쓸 예산이 없어 무료 등급이 있는 Gemini를 기본으로 쓴다. 상위 Flash 모델은 측정 당시 무료 등급 응답이 지연되거나 실패해 Flash-Lite를 고른다. 자체 모델 없이 시스템 프롬프트와 구조화 출력으로 산파술 응답을 만들고 파인튜닝은 하지 않는다. 환경 변수 AI_PROVIDER를 anthropic으로 바꾸면 같은 코드로 Claude API, 모델 claude-sonnet-5-5를 쓴다. |
 | 구조화 출력과 판정 재작성 2단계 | 응답을 JSON 스키마에 강제해 질문 유형과 응답 모드를 받고, 과제 단계에서는 별도 호출로 답 노출을 판정해 노출이면 다시 쓰게 한다. |
 | 검색 증강 생성, BM25 | 교수가 올린 학습 자료를 조각으로 나눠 색인하고 질문과 관련된 조각만 프롬프트에 넣는다. 벡터 DB 없이 rank-bm25로 처리한다. |
 | 자리 3 보조 프로그램, Python과 pywebview와 PyInstaller | 브라우저는 다른 프로그램 창을 캡처하거나 로컬 폴더를 감시할 수 없다. 작은 exe가 창 캡처, 폴더 감시, AI 창을 맡는다. |
@@ -29,7 +29,7 @@ AI 우왕톤 출품작의 서버다. 주제는 "AI는 동료가 될 수 있는�
 ```
 브라우저 (React)  ──/api──▶  FastAPI ──▶ SQLite (data/app.db), 파일 (data/media)
        │                        │
-       │ Google 문서 탭          ├──▶ Anthropic API (claude-sonnet-5-5)
+       │ Google 문서 탭          ├──▶ Gemini API (gemini-3.5-flash-lite)
        │                        └──▶ Google Drive API (자리 2, revisions와 export)
 보조 프로그램 (exe) ──/api/companion──▶ FastAPI   창 캡처, 저장 폴더 감시, AI 창(pywebview)
 ```
@@ -38,13 +38,13 @@ AI 우왕톤 출품작의 서버다. 주제는 "AI는 동료가 될 수 있는�
 
 - 교수 입력: 역량과 통과 점수와 채점 기준, 사전 사후 문항, 과제 설명과 첨부, 학습 자료, AI 응답 규칙, 도구 연동. `app/routers/assignments.py`
 - 학생 입력: 시험 답안, 학습 대화와 확인 문항 답, 결과물 버전과 변경 이유, 과제 대화. `app/routers/tests.py`, `learning.py`, `tasks.py`
-- AI 처리: `app/ai/services.py`가 시스템 프롬프트(`prompts.py`)와 구조화 출력 스키마(`schemas.py`)로 Claude를 부른다. 산파술 대화, 확인 문항 생성, 채점, 요약, 의심 신호 생성을 맡는다. 자료 검색은 `retrieval.py`다.
+- AI 처리: `app/ai/services.py`가 시스템 프롬프트(`prompts.py`)와 구조화 출력 스키마(`schemas.py`)로 Gemini를 부른다. 공급자별 호출은 `client.py`가 맡는다. 산파술 대화, 확인 문항 생성, 채점, 요약, 의심 신호 생성을 맡는다. 자료 검색은 `retrieval.py`다.
 - 출력: 교수 화면 API `app/routers/professor.py`가 다섯 가지 결과물과 의심 신호를 돌려준다.
 
 ### 직접 구현과 외부 기술의 범위
 
 - 직접 구현: 네 단계 흐름과 역량 기반 스펙 판정, 채점 파이프라인, 산파술 프롬프트와 출력 스키마, 답 노출 판정과 재작성, BM25 자료 검색, 버전 기록, 교수 화면, 보조 프로그램의 창 캡처와 폴더 감시.
-- 외부 기술: Anthropic Claude API(대화, 채점, 요약, 의심 신호 생성 모델), Google Drive API(문서 수정 이력), Monaco 편집기와 sql.js(브라우저 안 SQL 실행), pywebview와 PyInstaller와 watchdog와 pywin32(보조 프로그램).
+- 외부 기술: Google Gemini API(대화, 채점, 요약, 의심 신호 생성 모델), Google Drive API(문서 수정 이력), Monaco 편집기와 sql.js(브라우저 안 SQL 실행), pywebview와 PyInstaller와 watchdog와 pywin32(보조 프로그램).
 - 모킹: 없다. API 키가 없으면 AI 기능은 503으로 안내하고 고정 결과를 보여 주지 않는다. 텍스트와 이미지 비교 화면은 별도 담당자가 구현 중이며 그 전까지 버전 원문과 캡처만 보인다.
 
 ## 4. 실행 방법
@@ -53,7 +53,7 @@ AI 우왕톤 출품작의 서버다. 주제는 "AI는 동료가 될 수 있는�
 cd backend
 py -3.14 -m venv .venv
 .venv/Scripts/python -m pip install -r requirements-dev.txt
-copy env.example .env      # ANTHROPIC_API_KEY 등을 채운다
+copy env.example .env      # GEMINI_API_KEY 등을 채운다
 .venv/Scripts/python -m uvicorn app.main:app --port 8000 --reload
 ```
 
@@ -100,7 +100,15 @@ py -3.14 -m venv .venv
 
 ## 6. AI 검증 기록
 
-모델: Anthropic Claude API, `claude-sonnet-5-5`, 파인튜닝 없음. 호출마다 `ai_call_logs` 테이블에 용도와 토큰 수와 성공 여부를 기록한다.
+모델: Google Gemini API 무료 등급, `gemini-3.5-flash-lite`, 파인튜닝 없음. 호출마다 `ai_call_logs` 테이블에 용도와 모델과 토큰 수와 성공 여부를 기록한다. 사고 수준은 대화 medium, 답 노출 판정 low, 채점 high로 넘긴다. 무료 등급은 모델별, 프로젝트 단위의 하루 호출 한도가 있고 입력 내용이 Google 제품 개선에 쓰이므로 시연에는 샘플 데이터만 넣는다. 호출 한 번은 60초 제한에 재시도 한 번이고, 한도를 넘거나 서버가 혼잡하면 503으로 안내한다.
+
+2026-11-10 같은 키로 측정한 무료 등급 응답:
+
+| 모델 | 결과 |
+|---|---|
+| gemini-3.8-flash | 하루 20회, 분당 5회 한도. 산파술 대화 1회가 242초 걸려 성공했고, 이후 단순 요청은 118초 뒤 504 DEADLINE_EXCEEDED |
+| gemini-3.6-flash | 503 UNAVAILABLE, 수요 급증 안내 |
+| gemini-3.5-flash-lite | 구조화 출력 산파술 응답 4.0초, 정상 해석 |
 
 출력 품질과 오류와 한계의 검증 결과는 시연 과제로 질문 20개를 돌린 뒤 이 절에 기록한다. 아직 실행 전이므로 미검증이다.
 
@@ -116,7 +124,8 @@ py -3.14 -m venv .venv
 | 항목 | 출처 | 사용 범위 |
 |---|---|---|
 | FastAPI, SQLAlchemy, pydantic, uvicorn | https://pypi.org | 서버 프레임워크, MIT 또는 BSD |
-| anthropic Python SDK | https://github.com/anthropics/anthropic-sdk-python | Claude API 호출, MIT |
+| google-genai Python SDK 3.0.0 | https://github.com/googleapis/python-genai | Gemini API 호출, Apache 2.0 |
+| anthropic Python SDK | https://github.com/anthropics/anthropic-sdk-python | AI_PROVIDER=anthropic 일 때 Claude API 호출, MIT |
 | rank-bm25 | https://github.com/dorianbrown/rank_bm25 | 자료 검색, Apache 2.0 |
 | pypdf, python-docx, openpyxl | https://pypi.org | 파일 텍스트 추출 |
 | pywebview, PyInstaller, watchdog, pywin32, Pillow | https://pypi.org | 보조 프로그램 |

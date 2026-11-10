@@ -3,6 +3,7 @@ uvicorn[standard]>=0.35
 sqlalchemy>=2.0
 pydantic>=2.9
 pydantic-settings>=2.6
+google-genai>=3.0
 anthropic>=2.0
 pyjwt>=2.9
 bcrypt>=4.2

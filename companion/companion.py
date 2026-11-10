@@ -99,6 +99,9 @@ class Companion:
         return True
 
     def snapshot_loop(self, keyword: str, interval: int) -> None:
+        import hashlib
+
+        last_digest = ""
         while not self.stop_event.wait(interval):
             hwnd, title = find_window(keyword)
             if hwnd is None:
@@ -108,7 +111,12 @@ class Companion:
             if png is None:
                 self.log("창이 최소화되어 있거나 캡처가 비어 있어 이번 캡처를 건너뛴다")
                 continue
-            self.upload_snapshot(png, title)
+            digest = hashlib.sha256(png).hexdigest()
+            if digest == last_digest:
+                self.log("화면이 직전 캡처와 같아 올리지 않는다")
+                continue
+            if self.upload_snapshot(png, title):
+                last_digest = digest
 
     def run(self, folder: Path, keyword: str, extensions: list[str], interval: int) -> None:
         watcher = FolderWatcher(folder, extensions, lambda p: self.upload_file(p, "저장 폴더에서 감지한 저장"))

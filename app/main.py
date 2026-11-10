@@ -45,7 +45,8 @@ def health() -> dict[str, object]:
     return {
         "ok": True,
         "ai_available": ai_client.available,
-        "model": settings.anthropic_model,
+        "ai_provider": settings.ai_provider,
+        "model": settings.ai_model,
         "google_available": google.configured(),
         "companion_download": (settings.downloads_dir / "companion.exe").exists(),
     }

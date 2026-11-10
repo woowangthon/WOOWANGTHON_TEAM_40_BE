@@ -13,6 +13,8 @@ import pytest
 _tmp = Path(tempfile.mkdtemp(prefix="woowang-test-"))
 os.environ["DATABASE_URL"] = f"sqlite:///{(_tmp / 'test.db').as_posix()}"
 os.environ["MEDIA_DIR"] = str(_tmp / "media")
+os.environ["AI_PROVIDER"] = "gemini"
+os.environ["GEMINI_API_KEY"] = ""
 os.environ["ANTHROPIC_API_KEY"] = ""
 os.environ["SECRET_KEY"] = "test-secret-key-that-is-long-enough-for-hs256-0123456789"
 
