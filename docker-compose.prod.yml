@@ -1,0 +1,63 @@
+# 동아리방 컴퓨터 운영용. GitHub Actions 의 배포 단계가 이 파일로 이미지를 받아 띄운다.
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml up -d
+# 호스트 포트를 열지 않는다. 외부 접속은 cloudflared 가 Cloudflare Tunnel 로 받아
+# 앱 주소는 app:8000 으로, 보고서 편집기 주소는 onlyoffice:80 으로 넘긴다.
+# 같은 컴퓨터의 다른 서비스와 섞이지 않도록 프로젝트 이름을 고정한다.
+name: woowang
+services:
+  app:
+    image: ghcr.io/woowangthon/woowangthon-team-40:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # .env 에 APP_ENV=development 가 남아 있어도 SECRET_KEY 검사가 켜지게 한다
+      APP_ENV: production
+      CORS_ORIGINS: ""
+      # 보고서 편집기와는 compose 네트워크 안에서 서비스 이름으로 주고받는다
+      ONLYOFFICE_INTERNAL_URL: http://onlyoffice
+      BACKEND_URL_FOR_ONLYOFFICE: http://app:8000
+    volumes:
+      - app-data:/app/data
+      # 학생 코드는 호스트의 Docker 가 따로 띄운 컨테이너에서 돈다.
+      # 그 컨테이너에 코드 폴더를 넘기려면 호스트와 이 컨테이너가 같은 경로로 폴더를 봐야 한다.
+      - /app/data/runs:/app/data/runs
+      - /var/run/docker.sock:/var/run/docker.sock
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # 자리 4 보고서 편집기. 무료 Community 버전이라 동시 접속 수에 제한이 있다
+  onlyoffice:
+    image: onlyoffice/documentserver:9.1
+    restart: unless-stopped
+    environment:
+      JWT_ENABLED: "true"
+      JWT_SECRET: ${ONLYOFFICE_JWT_SECRET}
+      JWT_IN_BODY: "true"
+      # 문서를 받고 저장 콜백을 보낼 app 컨테이너가 사설 주소에 있다
+      ALLOW_PRIVATE_IP_ADDRESS: "true"
+      ALLOW_META_IP_ADDRESS: "true"
+    volumes:
+      - onlyoffice-data:/var/www/onlyoffice/Data
+    mem_limit: 3g
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      # 토큰만 넘긴다. 앱의 다른 비밀값은 이 컨테이너에 넣지 않는다
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN}
+    depends_on:
+      app:
+        condition: service_healthy
+
+volumes:
+  app-data:
+  onlyoffice-data:

@@ -98,6 +98,26 @@ docker compose up -d --build
 
 컨테이너 하나가 8000 포트로 API와 화면을 함께 서비스한다. 데이터는 `app-data` 볼륨에 남는다.
 
+### 운영 배포와 CI/CD
+
+운영은 동아리방 컴퓨터에서 `docker-compose.prod.yml`로 돌린다. 호스트 포트를 열지 않고 `cloudflared` 컨테이너가 Cloudflare Tunnel로 외부 요청을 받는다. 같은 컴퓨터의 다른 서비스와 섞이지 않도록 compose 프로젝트 이름은 `woowang`으로 고정한다.
+
+| 컨테이너 | 역할 |
+|---|---|
+| `app` | API와 화면. 학생 코드를 실행하려고 호스트의 Docker 소켓을 쓴다 |
+| `onlyoffice` | 자리 4 보고서 편집기 ONLYOFFICE Document Server |
+| `cloudflared` | 터널. 앱 주소는 `http://app:8000`, 편집기 주소는 `http://onlyoffice:80`으로 넘긴다 |
+
+`main`에 푸시하면 `.github/workflows/deploy.yml`이 세 단계를 차례로 실행한다. GitHub 러너가 타입 검사와 테스트를 돌리고, FE 저장소와 BE 저장소를 함께 받아 이미지를 빌드해 GHCR에 올리고, 동아리방 컴퓨터의 self-hosted 러너가 코드 실행 이미지와 앱 이미지를 받아 다시 띄운다. FE 저장소만 바뀌었을 때는 Actions 화면에서 이 워크플로를 직접 실행한다.
+
+준비할 것은 세 가지다.
+
+1. Cloudflare Zero Trust에서 터널을 만들고 Public Hostname을 두 개 둔다. 앱 주소의 Service는 `http://app:8000`, 편집기 주소의 Service는 `http://onlyoffice:80`이다.
+2. 저장소 시크릿 `ENV_DOCKER`에 `.env` 내용 전체를 넣는다. 첫 줄은 주석으로 두고 `SECRET_KEY`, AI 키, `PUBLIC_URL`, `OAUTH_REDIRECT_BASE`, `ONLYOFFICE_PUBLIC_URL`, `ONLYOFFICE_JWT_SECRET`, `TUNNEL_TOKEN`을 채운다. `ONLYOFFICE_INTERNAL_URL`과 `BACKEND_URL_FOR_ONLYOFFICE`는 compose가 정하므로 넣지 않는다.
+3. 동아리방 컴퓨터에 이 저장소용 러너를 따로 설치하고 라벨 `woowang`을 준다.
+
+학생 코드는 `app` 컨테이너가 호스트의 Docker에 요청해 따로 띄운 컨테이너에서 돈다. 그 컨테이너에 코드 폴더를 넘기려면 호스트와 `app` 컨테이너가 같은 경로로 그 폴더를 봐야 하므로 `/app/data/runs`를 같은 경로로 묶는다. Docker 소켓을 넘기면 `app` 컨테이너가 그 컴퓨터의 다른 컨테이너도 다룰 수 있다. 2026-11-12 기준으로 이 구성은 실제 컴퓨터에서 띄워 보지 않았다.
+
 ## 4-1. 자리 4 작업공간 (feat/workspace-stage)
 
 과제 단계에서 AI 사용을 막지 않고, 대신 AI를 어떻게 썼는지 전부 기록하는 도구다. 여러 파일, 자동 커밋, AI 수정안, Docker 코드 실행을 한 화면에서 쓴다.

@@ -10,6 +10,8 @@ RUN npm run build
 FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
+# 자리 4 작업공간이 학생 코드를 호스트의 Docker 로 실행할 때 쓰는 명령줄 도구. 데몬은 넣지 않는다
+COPY --from=docker:27-cli /usr/local/bin/docker /usr/local/bin/docker
 COPY backend/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/app ./app

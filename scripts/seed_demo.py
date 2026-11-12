@@ -18,10 +18,8 @@ import requests
 PROFESSOR = {"email": "judge.professor@example.com", "name": "심사용 교수"}
 STUDENT = {"email": "judge.student@example.com", "name": "심사용 학생"}
 
-SQL_SCHEMA = """CREATE TABLE dept(id INTEGER PRIMARY KEY, name TEXT);
-CREATE TABLE emp(id INTEGER PRIMARY KEY, name TEXT, dept_id INTEGER REFERENCES dept(id), salary INTEGER);"""
-SQL_SEED = """INSERT INTO dept VALUES (1,'영업'),(2,'개발'),(3,'인사');
-INSERT INTO emp VALUES (1,'김가',1,250),(2,'이나',1,350),(3,'박다',2,400),(4,'최라',2,380),(5,'정마',3,200);"""
+# 작업공간 시연 과제의 시작 파일과 설명은 seed_workspace_demo.py 의 것을 같이 쓴다
+from seed_workspace_demo import DESCRIPTION, REPORT_OUTLINE, SCHEDULER, TESTS  # noqa: E402
 
 
 def auth(base: str, info: dict[str, str], role: str, password: str) -> str:
@@ -63,105 +61,55 @@ def main() -> int:
     auth(base, STUDENT, "student", password)
     deadline = (datetime.now(timezone.utc) + timedelta(days=14)).isoformat()
 
-    sql = make_assignment(
+    a = make_assignment(
         base,
         prof,
         {
-            "title": "부서별 평균 급여 조회문 설계",
-            "subject": "데이터베이스",
-            "description": "사원과 부서 테이블을 조인해 부서별 평균 급여가 300 이상인 부서 이름과 평균 급여를 구하는 조회문을 설계한다. 편집기에서 실행해 결과로 검증하고, 저장할 때마다 변경 이유를 적는다.",
+            "title": "Round Robin 스케줄러 구현과 분석",
+            "subject": "운영체제",
+            "description": DESCRIPTION,
             "deadline": deadline,
             "task_kind": "performance",
-            "tool_slot": 1,
-            "tool_name": "sql",
-            "tool_config": {"schema_sql": SQL_SCHEMA, "seed_sql": SQL_SEED},
-            "pre_time_limit_min": 20,
-            "post_time_limit_min": 20,
+            "tool_slot": 4,
+            "tool_name": "workspace",
+            "tool_config": {
+                "files": [
+                    {"path": "scheduler.py", "content": SCHEDULER},
+                    {"path": "test_scheduler.py", "content": TESTS, "readonly": True},
+                    {"path": "report.docx", "content": REPORT_OUTLINE},
+                ],
+                # 교수 지정 실행 환경. 학생이 처음 고를 때 서버가 이미지를 만든다
+                "environment": {
+                    "preset": "ubuntu-22.04",
+                    "name": "운영체제 과제 채점 환경",
+                    "required": False,
+                    "apt": [],
+                    "pip": [],
+                    "cflags": "-std=c++17 -O2 -Wall",
+                },
+            },
         },
         [
-            {"name": "조인 이해", "description": "기본 키와 외래 키로 두 테이블을 연결한다", "pass_score": 60, "grading_criteria": "조인 조건을 기본 키와 외래 키 관계로 설명하면 만점이다. 조인 종류 이름만 나열하면 50점 이하다. 조인 조건이 없거나 틀리면 30점 이하다."},
-            {"name": "집계 함수와 그룹화", "description": "GROUP BY와 집계 함수로 그룹별 값을 구한다", "pass_score": 60, "grading_criteria": "GROUP BY로 그룹을 나눈 뒤 집계 함수가 그룹마다 하나의 값을 낸다는 점을 설명하면 만점이다. 집계 함수 이름만 쓰면 40점 이하다."},
-            {"name": "그룹 조건 필터링", "description": "HAVING으로 집계 결과를 거른다", "pass_score": 60, "grading_criteria": "WHERE는 행을, HAVING은 그룹의 집계 결과를 거른다는 차이를 설명하면 만점이다. 둘을 구분하지 못하면 40점 이하다."},
+            {"name": "CPU 스케줄링 개념", "description": "선점과 비선점, 대기 시간과 반환 시간", "pass_score": 60, "grading_criteria": "선점형과 비선점형의 차이를 구분하고 대기 시간과 반환 시간을 정확히 정의하면 만점이다. 용어만 나열하면 40점 이하다."},
+            {"name": "Round Robin 동작", "description": "준비 큐와 시간 할당량으로 실행 순서를 정한다", "pass_score": 60, "grading_criteria": "시간 할당량이 끝난 작업이 준비 큐의 뒤로 가는 과정을 순서대로 설명하면 만점이다. 순서가 틀리면 30점 이하다."},
+            {"name": "시간 할당량 분석", "description": "할당량 크기가 응답 시간과 문맥 교환에 주는 영향", "pass_score": 60, "grading_criteria": "할당량이 작을 때와 클 때의 장단점을 문맥 교환 비용과 응답 시간으로 설명하면 만점이다. 한쪽만 쓰면 50점 이하다."},
         ],
         [
-            {"type": "choice", "stem": "두 테이블을 공통 열로 연결하는 연산은 무엇인가", "options": ["JOIN", "UNION", "GROUP BY", "ORDER BY"], "answer": "JOIN"},
-            {"type": "essay_short", "stem": "GROUP BY와 집계 함수의 관계를 두세 문장으로 설명하라", "options": [], "answer": "GROUP BY로 묶인 각 그룹마다 집계 함수가 하나의 값을 계산한다"},
-            {"type": "essay_short", "stem": "WHERE와 HAVING의 차이를 설명하라", "options": [], "answer": "WHERE는 그룹화 전에 행을 거르고 HAVING은 그룹화 뒤 집계 결과를 거른다"},
+            {"type": "choice", "stem": "선점형 스케줄링에 해당하는 것은", "options": ["FCFS", "비선점 SJF", "Round Robin", "비선점 우선순위"], "answer": "Round Robin"},
+            {"type": "short", "stem": "Round Robin 에서 한 작업이 한 번에 CPU 를 쓸 수 있는 최대 시간을 무엇이라 하는가", "options": [], "answer": "시간 할당량|타임 퀀텀|time quantum|quantum"},
+            {"type": "essay_short", "stem": "시간 할당량을 아주 작게 잡으면 어떤 문제가 생기는지 설명하라", "options": [], "answer": "문맥 교환이 잦아져 실제 작업에 쓰는 시간보다 교환 비용이 커진다"},
         ],
         [
-            {"type": "short", "stem": "조인 조건을 쓰는 절의 이름은 무엇인가", "options": [], "answer": "ON|WHERE"},
-            {"type": "essay_short", "stem": "부서별 평균 급여를 구하는 조회문의 구조를 설명하라", "options": [], "answer": "부서 열로 GROUP BY 하고 AVG(급여)를 SELECT 한다"},
-            {"type": "essay_short", "stem": "평균 급여가 300 이상인 부서만 남기려면 어떤 절을 쓰고 왜 그런가", "options": [], "answer": "HAVING AVG(salary) >= 300 을 쓴다. 집계 결과를 거르는 조건이기 때문이다"},
+            {"type": "choice", "stem": "실행 중인 작업을 운영체제가 강제로 멈출 수 있는 방식은", "options": ["비선점형", "선점형", "일괄 처리", "단일 작업"], "answer": "선점형"},
+            {"type": "short", "stem": "Round Robin 에서 준비 상태의 작업이 차례를 기다리는 자료구조는 무엇인가", "options": [], "answer": "큐|준비 큐|ready queue|queue"},
+            {"type": "essay_short", "stem": "시간 할당량을 아주 크게 잡으면 Round Robin 이 어떤 방식과 같아지는지 이유와 함께 설명하라", "options": [], "answer": "모든 작업이 할당량 안에 끝나므로 먼저 온 순서대로 처리하는 FCFS 와 같아진다"},
         ],
         [
-            {"target": "ai", "text": "서브쿼리와 윈도 함수는 이 과제에서 설명하지 않는다"},
-            {"target": "both", "text": "SQL 키워드는 대문자로 쓰도록 안내한다"},
-            {"target": "student", "text": "외부 자료를 인용하면 변경 이유에 출처를 적는다"},
+            {"target": "ai", "text": "학습 단계에서는 round_robin 함수의 완성된 코드를 보여 주지 않는다"},
+            {"target": "student", "text": "과제 단계에서 AI 를 쓴 내용은 모두 기록되어 교수에게 보인다"},
         ],
     )
-    print(f"자리 1 과제 생성: id {sql['id']} 참여 코드 {sql['join_code']}")
-
-    excel = make_assignment(
-        base,
-        prof,
-        {
-            "title": "소비자물가지수로 물가 상승률 계산",
-            "subject": "경제학",
-            "description": "공개된 소비자물가지수 자료를 Excel에 넣고 전년 대비 물가 상승률을 수식으로 계산한 뒤 그래프를 그려 최근 3년의 추세를 해석한다. 저장할 때마다 보조 프로그램이 버전을 기록한다.",
-            "deadline": deadline,
-            "task_kind": "performance",
-            "tool_slot": 3,
-            "tool_name": "companion",
-            "tool_config": {"program": "Excel", "extensions": ".xlsx,.xlsm", "window_keyword": "Excel"},
-            "pre_time_limit_min": 20,
-            "post_time_limit_min": 20,
-        },
-        [
-            {"name": "지수와 변화율", "description": "지수에서 변화율을 계산한다", "pass_score": 60, "grading_criteria": "변화율을 (올해 지수 - 작년 지수) / 작년 지수 로 쓰고 백분율로 바꾸는 과정을 설명하면 만점이다. 공식이 틀리면 30점 이하다."},
-            {"name": "표 해석", "description": "표와 그래프에서 추세를 읽는다", "pass_score": 60, "grading_criteria": "수치의 증감 방향과 크기를 근거로 추세를 서술하면 만점이다. 근거 없이 인상만 쓰면 40점 이하다."},
-        ],
-        [
-            {"type": "short", "stem": "작년 지수 100, 올해 지수 103이면 물가 상승률은 몇 퍼센트인가", "options": [], "answer": "3|3%|3퍼센트"},
-            {"type": "essay_short", "stem": "물가 상승률 그래프가 2년 연속 낮아질 때 무엇을 뜻하는지 설명하라", "options": [], "answer": "물가가 오르긴 하지만 오르는 속도가 둔해진다는 뜻이다"},
-        ],
-        [
-            {"type": "short", "stem": "작년 지수 120, 올해 지수 126이면 물가 상승률은 몇 퍼센트인가", "options": [], "answer": "5|5%|5퍼센트"},
-            {"type": "essay_short", "stem": "지수 자체가 커지는 것과 상승률이 커지는 것의 차이를 설명하라", "options": [], "answer": "지수는 물가 수준이고 상승률은 그 수준이 변하는 속도다"},
-        ],
-        [{"target": "ai", "text": "수식의 셀 주소를 대신 써 주지 않는다"}],
-    )
-    print(f"자리 3 과제 생성: id {excel['id']} 참여 코드 {excel['join_code']}")
-
-    gdoc = make_assignment(
-        base,
-        prof,
-        {
-            "title": "청년 주거 정책 제안서",
-            "subject": "정치학",
-            "description": "청년 주거 문제를 하나 골라 현황, 원인, 정책 대안, 기대 효과를 표와 각주와 목차를 갖춘 제안서로 쓴다. Google 문서로 작성하며 수정 이력이 버전으로 남는다.",
-            "deadline": deadline,
-            "task_kind": "essay",
-            "tool_slot": 2,
-            "tool_name": "google_docs",
-            "tool_config": {},
-            "pre_time_limit_min": 20,
-            "post_time_limit_min": 20,
-        },
-        [
-            {"name": "문제 정의", "description": "정책 문제를 범위와 대상으로 정의한다", "pass_score": 60, "grading_criteria": "대상 집단과 문제의 범위를 구체적으로 한정하면 만점이다. 막연하게 청년 문제라고만 쓰면 40점 이하다."},
-            {"name": "근거 제시", "description": "통계나 사례로 주장을 뒷받침한다", "pass_score": 60, "grading_criteria": "주장마다 출처가 있는 통계나 사례를 붙이면 만점이다. 근거 없는 주장은 30점 이하다."},
-        ],
-        [
-            {"type": "essay_short", "stem": "정책 문제를 정의할 때 대상과 범위를 한정해야 하는 이유를 설명하라", "options": [], "answer": "대상과 범위가 분명해야 대안의 효과를 측정하고 비교할 수 있다"},
-            {"type": "choice", "stem": "정책 제안서에서 근거로 가장 적절한 것은", "options": ["출처가 있는 통계", "개인의 인상", "유명인의 발언", "추측"], "answer": "출처가 있는 통계"},
-        ],
-        [
-            {"type": "essay_short", "stem": "제안서의 기대 효과를 쓸 때 무엇을 근거로 삼아야 하는가", "options": [], "answer": "비슷한 정책의 사례나 통계로 추정한 효과를 근거로 삼는다"},
-            {"type": "choice", "stem": "근거의 출처를 밝히는 방법으로 알맞은 것은", "options": ["각주", "굵은 글씨", "밑줄", "느낌표"], "answer": "각주"},
-        ],
-        [{"target": "both", "text": "특정 정당이나 인물의 입장을 대신 평가하지 않는다"}],
-    )
-    print(f"자리 2 과제 생성: id {gdoc['id']} 참여 코드 {gdoc['join_code']}")
+    print(f"작업공간 과제 생성: id {a['id']} 참여 코드 {a['join_code']}")
     print(f"심사용 계정: 교수 {PROFESSOR['email']} / 학생 {STUDENT['email']} (비밀번호는 DEMO_PASSWORD)")
     return 0
 
