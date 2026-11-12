@@ -73,7 +73,7 @@ class DocConfigOut(BaseModel):
 
 
 @router.get("/api/enrollments/{enrollment_id}/workspace/doc-config", response_model=DocConfigOut)
-def doc_config(path: str, e: MyEnrollment, db: DB) -> DocConfigOut:
+def doc_config(path: str, e: MyEnrollment, db: DB, theme: str = "light") -> DocConfigOut:
     secret = _secret()
     attempt = _open(db, e)
     f = _file(attempt, path)
@@ -103,7 +103,7 @@ def doc_config(path: str, e: MyEnrollment, db: DB) -> DocConfigOut:
                 "compactHeader": True,
                 "toolbarNoTabs": False,
                 "hideRightMenu": True,
-                "uiTheme": "theme-light",
+                "uiTheme": "theme-dark" if theme == "dark" else "theme-light",
             },
         },
         "width": "100%",
