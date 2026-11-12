@@ -440,3 +440,16 @@ class AIProposal(Base):
 
     # 지울 때 수정안을 메시지보다 먼저 지우도록 관계를 알려 준다
     message: Mapped[ChatMessage | None] = relationship()
+
+
+class EnvBuild(Base):
+    """교수 실행 환경의 Docker 이미지 빌드 상태. 같은 설정이면 같은 tag 를 다시 쓴다."""
+
+    __tablename__ = "env_builds"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tag: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(20), default="building")  # building | ready | failed
+    log: Mapped[str] = mapped_column(Text, default="")
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

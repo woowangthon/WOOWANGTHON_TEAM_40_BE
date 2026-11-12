@@ -149,7 +149,7 @@ def test_workspace_flow(client: TestClient, fake_ai: FakeAI, monkeypatch: pytest
     # 실행은 Docker 대신 가짜 실행기로
     monkeypatch.setattr(
         runner, "run",
-        lambda files, language, path, mode, stdin, tests: {"mode": mode, "language": language, "path": path, "compile_error": None, "tests": [{"name": "test_add", "passed": True}], "passed": 1, "total": 1, "stdout": "", "exit_code": 0, "duration": 0.1},
+        lambda files, language, path, mode, stdin, tests, **_: {"mode": mode, "language": language, "path": path, "compile_error": None, "tests": [{"name": "test_add", "passed": True}], "passed": 1, "total": 1, "stdout": "", "exit_code": 0, "duration": 0.1},
     )  # fmt: skip
     r = client.post(f"{base}/run", json={"path": "main.py", "mode": "test"}, headers=h)
     assert r.status_code == 200, r.text

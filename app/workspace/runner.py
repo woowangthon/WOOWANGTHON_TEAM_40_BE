@@ -87,7 +87,10 @@ def java_class_name(path: str, source: str) -> str:
     return f"{m.group(1)}.{Path(path).stem}" if m else Path(path).stem
 
 
-def _commands(language: str, path: str, java_class: str = "") -> tuple[str, str]:
+DEFAULT_CFLAGS = "-std=c++17 -O2"
+
+
+def _commands(language: str, path: str, java_class: str = "", cflags: str = DEFAULT_CFLAGS) -> tuple[str, str]:
     """(컴파일 명령, 실행 명령). 컴파일이 없으면 true."""
     q = shlex.quote
     if language == "python":
@@ -95,7 +98,7 @@ def _commands(language: str, path: str, java_class: str = "") -> tuple[str, str]
     if language == "cpp":
         # 지금 파일만 컴파일한다. 헤더는 파일 폴더, 작업공간 맨 위, include/ 에서 찾는다
         folder = q("/code/" + (str(Path(path).parent) if str(Path(path).parent) != "." else ""))
-        return f"g++ -std=c++17 -O2 -I{folder} -I/code -I/code/include -o /tmp/a.out /code/{q(path)}", "/tmp/a.out"
+        return f"g++ {cflags} -I{folder} -I/code -I/code/include -o /tmp/a.out /code/{q(path)}", "/tmp/a.out"
     if language == "java":
         # 하위 폴더까지 모든 .java 를 컴파일한다. 실행할 클래스는 package 선언과 파일 이름으로 정한다
         return (
@@ -106,8 +109,8 @@ def _commands(language: str, path: str, java_class: str = "") -> tuple[str, str]
     raise ValueError(f"지원하지 않는 언어: {language}")
 
 
-def _cases_script(language: str, path: str, count: int, java_class: str = "") -> str:
-    compile_cmd, run_cmd = _commands(language, path, java_class)
+def _cases_script(language: str, path: str, count: int, java_class: str = "", cflags: str = DEFAULT_CFLAGS) -> str:
+    compile_cmd, run_cmd = _commands(language, path, java_class, cflags)
     t = settings.run_timeout_seconds
     return f"""
 {compile_cmd} > /tmp/compile.log 2>&1 || {{ echo "@@COMPILE_FAIL"; cat /tmp/compile.log; exit {COMPILE_FAIL_EXIT}; }}
@@ -162,8 +165,17 @@ def _parse_cases(out: str) -> tuple[str | None, list[dict[str, Any]]]:
     return None, cases
 
 
-def run(files: dict[str, str], language: str, path: str, mode: str, stdin: str, tests: list[dict[str, Any]]) -> dict[str, Any]:
-    """files 는 {경로: 내용}. 결과 사전을 돌려준다."""
+def run(
+    files: dict[str, str],
+    language: str,
+    path: str,
+    mode: str,
+    stdin: str,
+    tests: list[dict[str, Any]],
+    image: str | None = None,
+    cflags: str | None = None,
+) -> dict[str, Any]:
+    """files 는 {경로: 내용}. image 를 주면 그 이미지(교수 환경)에서, 없으면 언어별 기본 이미지에서 돌린다."""
     job = DATA_DIR / "runs" / new_token(9)
     job.mkdir(parents=True)
     try:
@@ -171,7 +183,8 @@ def run(files: dict[str, str], language: str, path: str, mode: str, stdin: str, 
             dest = job / p
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_text(content, encoding="utf-8")
-        image = _image(language)
+        image = image or _image(language)
+        cflags = cflags or DEFAULT_CFLAGS
         limit = settings.compile_timeout_seconds + settings.run_timeout_seconds * max(1, len(tests)) + 10
         started = time.perf_counter()
         result: dict[str, Any] = {"mode": mode, "language": language, "path": path, "compile_error": None, "tests": []}
@@ -195,7 +208,7 @@ def run(files: dict[str, str], language: str, path: str, mode: str, stdin: str, 
             (job / "__cases__").mkdir()
             for i, c in enumerate(cases):
                 (job / "__cases__" / f"{i}.in").write_text(str(c.get("stdin", "")), encoding="utf-8")
-            code, out, timed_out = _docker(job, image, _cases_script(language, path, len(cases), java_class_name(path, files.get(path, ''))), limit)
+            code, out, timed_out = _docker(job, image, _cases_script(language, path, len(cases), java_class_name(path, files.get(path, '')), cflags), limit)
             compile_error, parsed = _parse_cases(out)
             result.update(timed_out=timed_out, exit_code=code, compile_error=compile_error)
             if mode == "run":

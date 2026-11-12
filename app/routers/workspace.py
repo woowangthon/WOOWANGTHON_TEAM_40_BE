@@ -26,7 +26,7 @@ from ..models import AIProposal, ArtifactVersion, ChatMessage, Enrollment, TaskA
 from ..schemas import ChatMessageOut
 from ..util import utcnow
 from ..workspace import ai as ws_ai
-from ..workspace import runner
+from ..workspace import envs, runner
 from ..workspace.diff import line_diff, replace_lines, slice_lines
 from ..workspace.docx_store import doc_path, ensure_doc, save_doc
 from .common import ai_error, deadline_passed, message_out
@@ -95,6 +95,7 @@ class WorkspaceOut(BaseModel):
     tests: list[dict[str, Any]]
     last_run: dict[str, Any] | None
     ai_available: bool
+    environment: dict[str, Any]
 
 
 class CommitIn(BaseModel):
@@ -151,6 +152,7 @@ class RunIn(BaseModel):
     path: str
     mode: Literal["run", "test"] = "run"
     stdin: str = Field(default="", max_length=100_000)
+    env: Literal["default", "professor"] | None = None  # 없으면 학생이 고른 환경. 제출 전 확인은 professor
 
 
 class RunOut(BaseModel):
@@ -341,6 +343,7 @@ def _workspace_out(db: Session, e: Enrollment) -> WorkspaceOut:
         tests=[{"name": t.get("name", "")} for t in tests],
         last_run=(runs[-1].meta or {}).get("run") if runs else None,
         ai_available=ai_client.available,
+        environment=envs.env_info(db, e),
     )
 
 
@@ -640,7 +643,12 @@ def run_code(body: RunIn, e: MyEnrollment, db: DB) -> RunOut:
     files = {x.path: x.content for x in attempt.workspace_files if x.kind == "code"}
     tests = list((e.assignment.tool_config or {}).get("tests", []))
     try:
-        result = runner.run(files, language, f.path, body.mode, body.stdin, tests)
+        env_key, image, cflags, env_os = envs.resolve(db, e, body.env)
+    except envs.EnvError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    try:
+        result = runner.run(files, language, f.path, body.mode, body.stdin, tests, image=image, cflags=cflags)
+        result.update(env=env_key, env_os=env_os)
     except runner.RunUnavailable as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
     except ValueError as exc:
@@ -654,6 +662,8 @@ def run_code(body: RunIn, e: MyEnrollment, db: DB) -> RunOut:
         title = f"테스트 실행 · {result['passed']}/{result['total']} 통과"
     else:
         title = "실행 · " + ("시간 초과" if result.get("timed_out") else f"종료 코드 {result.get('exit_code')}")
+    if body.env == "professor":
+        title = f"교수 환경 확인 · {title}"
     stored = {**result, "stdout": str(result.get("stdout", ""))[:4000], "stdin": body.stdin[:2000]}
     v = ArtifactVersion(
         attempt_id=attempt.id,

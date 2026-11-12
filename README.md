@@ -112,6 +112,7 @@ docker compose up -d --build
 - 보고서(docx): `app/routers/onlyoffice.py`. ONLYOFFICE Document Server 를 작업공간 안에 띄워 docx 를 그대로 편집한다. 원본 docx 는 media 폴더에, 문단 텍스트는 `workspace_files.content` 에 두고 텍스트로 diff 한다. 저장 콜백(강제 저장 status 6, 세션 종료 status 2)마다 텍스트가 바뀌었으면 커밋한다. 우리 쪽 커밋 시점에는 프런트가 `/doc-forcesave` 를 부르고, 백엔드가 Document Server 에 forcesave 명령을 보낸다. 편집기 안 입력은 키 단위로 받을 수 없으므로 보고서의 사람 수정은 저장 단위로 기록되고, 붙여넣기는 구분하지 못한다.
 - Document Server 실행: `.env` 에 `ONLYOFFICE_JWT_SECRET` 을 넣고 `./scripts/onlyoffice.sh`. Colima 에서는 `BACKEND_URL_FOR_ONLYOFFICE=http://host.lima.internal:8000`, Docker Desktop 에서는 `host.docker.internal`. 무료 Community 버전은 동시 접속 수 제한이 있어 시연 규모에서만 쓴다.
 - 아직 없는 것: 보고서 AI 수정안(문단 단위), PDF 변환 제출.
+- 실행 환경: `app/workspace/envs.py`, `app/routers/environments.py`. 교수는 `PUT /api/assignments/{id}/environment` 로 OS 프리셋(ubuntu-22.04, ubuntu-24.04, debian-12), 추가 apt, pip 패키지, 컴파일 옵션, 필수 여부를 정한다. 서버가 Dockerfile 을 만들어 과제 전용 이미지(`woowang-env:해시`)를 백그라운드에서 빌드하고(처음 한 번 수 분, 약 1GB), 같은 설정이면 다시 쓴다. 학생은 과제 단계 첫 화면에서 기본 환경과 교수 환경 중에 고르고, 선택은 `env_select` 이벤트로 남는다. 실행과 테스트는 고른 환경의 이미지에서 돌고, 권장 모드에서 기본 환경을 고른 학생은 제출 전에 교수 환경에서 테스트를 한 번 더 돌린다. 빌드할 때만 인터넷을 쓰고 실행할 때는 네트워크를 끊는다.
 
 ## 5. 보조 프로그램
 

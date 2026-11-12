@@ -142,7 +142,16 @@ def main() -> int:
                     {"path": "scheduler.py", "content": SCHEDULER},
                     {"path": "test_scheduler.py", "content": TESTS, "readonly": True},
                     {"path": "report.docx", "content": REPORT_OUTLINE},
-                ]
+                ],
+                # 교수 지정 실행 환경. 처음 고른 학생이 있을 때 이미지를 만든다(몇 분)
+                "environment": {
+                    "preset": "ubuntu-22.04",
+                    "name": "운영체제 과제 채점 환경",
+                    "required": False,
+                    "apt": ["valgrind"],
+                    "pip": ["numpy"],
+                    "cflags": "-std=c++17 -O2 -Wall",
+                },
             },
         )
         db.add(a)

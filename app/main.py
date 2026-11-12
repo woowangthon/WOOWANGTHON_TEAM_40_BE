@@ -16,6 +16,7 @@ from .routers import (
     auth,
     companion,
     enrollments,
+    environments,
     google,
     learning,
     onlyoffice,
@@ -54,6 +55,7 @@ app.include_router(companion.router)
 app.include_router(google.router)
 app.include_router(workspace.router)
 app.include_router(onlyoffice.router)
+app.include_router(environments.router)
 
 
 @app.get("/api/health")
