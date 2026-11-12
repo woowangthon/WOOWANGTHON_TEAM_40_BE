@@ -1,7 +1,8 @@
 """DB 모델. 기획 5장 확정 사항의 용어를 그대로 쓴다.
 
 단계 stage: pre(사전평가) → learning(학습) → task(과제) → post(사후평가) → done(첫 제출 완료, 재제출 가능)
-도구 자리 tool_slot: 0 페이지 안 문서 편집기, 1 페이지 안 웹 도구, 2 API 연동 웹 도구, 3 보조 프로그램이 덮는 데스크톱 프로그램
+도구 자리 tool_slot: 0 페이지 안 문서 편집기, 1 페이지 안 웹 도구, 2 API 연동 웹 도구, 3 보조 프로그램이 덮는 데스크톱 프로그램,
+    4 작업공간(여러 파일 + 코드 실행 + AI 수정안, 자동 커밋)
 문항 종류 type: choice 선택형, short 단답형, fill 완성형, essay_short 서술형, essay_long 논술형
 """
 
@@ -269,6 +270,11 @@ class TaskAttempt(Base):
     versions: Mapped[list[ArtifactVersion]] = relationship(
         back_populates="attempt", cascade="all, delete-orphan", order_by="ArtifactVersion.version_no"
     )
+    workspace_files: Mapped[list[WorkspaceFile]] = relationship(
+        cascade="all, delete-orphan", order_by="WorkspaceFile.id"
+    )
+    events: Mapped[list[TaskEvent]] = relationship(cascade="all, delete-orphan", order_by="TaskEvent.id")
+    proposals: Mapped[list[AIProposal]] = relationship(cascade="all, delete-orphan", order_by="AIProposal.id")
 
 
 class ArtifactVersion(Base):
@@ -371,3 +377,64 @@ class AICallLog(Base):
     ok: Mapped[bool] = mapped_column(Boolean, default=True)
     error: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+# ---------- 자리 4 작업공간 ----------
+# 커밋은 ArtifactVersion(source="workspace")으로 남긴다. 교수 화면과 요약이 그대로 읽을 수 있게 하기 위해서다.
+# meta 에 author(human | ai | paste | run | template), trigger, file, diff, plus, minus, proposal_id 등을 넣는다.
+
+
+class WorkspaceFile(Base):
+    """시도별 작업공간 파일의 현재 내용. 이력은 ArtifactVersion 커밋에 있다."""
+
+    __tablename__ = "workspace_files"
+    __table_args__ = (UniqueConstraint("attempt_id", "path", name="uq_workspace_file"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    attempt_id: Mapped[int] = mapped_column(ForeignKey("task_attempts.id"), index=True)
+    path: Mapped[str] = mapped_column(String(255))
+    kind: Mapped[str] = mapped_column(String(10), default="code")  # code | doc
+    language: Mapped[str] = mapped_column(String(20), default="")  # python | cpp | java | ""
+    content: Mapped[str] = mapped_column(Text, default="")
+    template: Mapped[bool] = mapped_column(Boolean, default=False)
+    readonly: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 보고서(docx)만 쓴다. ONLYOFFICE 편집 세션이 끝나 저장될 때마다 1씩 올려 문서 키를 바꾼다
+    doc_rev: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class TaskEvent(Base):
+    """커밋보다 잘게 남기는 원본 이벤트. 지표를 바꿔도 다시 계산할 수 있게 한다."""
+
+    __tablename__ = "task_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    attempt_id: Mapped[int] = mapped_column(ForeignKey("task_attempts.id"), index=True)
+    file_path: Mapped[str] = mapped_column(String(255), default="")
+    # focus_ai | focus_editor | file_switch | paste | ai_request | ai_accept | ai_reject | ai_edit | run | compile
+    kind: Mapped[str] = mapped_column(String(30))
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class AIProposal(Base):
+    """AI 수정안. 학생이 수락, 거절, 직접 고쳐 반영 중에 고른다."""
+
+    __tablename__ = "ai_proposals"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    attempt_id: Mapped[int] = mapped_column(ForeignKey("task_attempts.id"), index=True)
+    message_id: Mapped[int | None] = mapped_column(ForeignKey("chat_messages.id", ondelete="SET NULL"), nullable=True)
+    file_path: Mapped[str] = mapped_column(String(255))
+    start_line: Mapped[int] = mapped_column(Integer)  # 1부터. 이 줄부터 바꾼다
+    end_line: Mapped[int] = mapped_column(Integer)  # 이 줄까지 바꾼다. start_line - 1 이면 삽입
+    old_text: Mapped[str] = mapped_column(Text, default="")
+    new_text: Mapped[str] = mapped_column(Text, default="")
+    reason: Mapped[str] = mapped_column(Text, default="")
+    prompt: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending | accepted | rejected | edited | stale
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    # 지울 때 수정안을 메시지보다 먼저 지우도록 관계를 알려 준다
+    message: Mapped[ChatMessage | None] = relationship()

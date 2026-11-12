@@ -48,6 +48,23 @@ class Settings(BaseSettings):
     max_version_mb: int = 30
     companion_snapshot_seconds: int = 60
 
+    # 자리 4 작업공간의 코드 실행. 학생 코드는 Docker 컨테이너 안에서만 돌린다
+    docker_bin: str = "docker"
+    run_timeout_seconds: int = 5
+    compile_timeout_seconds: int = 30
+    run_image_python: str = "python:3.12-slim"
+    run_image_cpp: str = "gcc:14"
+    run_image_java: str = "eclipse-temurin:21-jdk"
+
+    # 자리 4 보고서(docx) 편집기 ONLYOFFICE Document Server
+    # onlyoffice_public_url: 브라우저가 편집기 스크립트를 받는 주소
+    # onlyoffice_internal_url: 백엔드가 명령(강제 저장)을 보내고 저장본을 받는 주소
+    # backend_url_for_onlyoffice: Document Server 컨테이너가 이 백엔드에 접속하는 주소(문서 다운로드, 저장 콜백)
+    onlyoffice_public_url: str = "http://localhost:8080"
+    onlyoffice_internal_url: str = "http://localhost:8080"
+    onlyoffice_jwt_secret: str = ""
+    backend_url_for_onlyoffice: str = "http://host.lima.internal:8000"
+
     @field_validator("database_url")
     @classmethod
     def _sqlite_relative_to_backend(cls, v: str) -> str:

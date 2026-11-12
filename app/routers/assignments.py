@@ -365,6 +365,8 @@ def _publish_problems(a: Assignment) -> list[str]:
         problems.append("과제 마감이 없다")
     if a.tool_slot == 3 and not (a.tool_config or {}).get("program"):
         problems.append("자리 3 과제는 프로그램 이름이 필요하다")
+    if a.tool_name == "workspace" and not (a.tool_config or {}).get("files"):
+        problems.append("자리 4 작업공간 과제는 기본 파일이 하나 이상 필요하다")
     return problems
 
 

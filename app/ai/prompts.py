@@ -39,6 +39,7 @@ def _assignment_section(assignment: Assignment) -> str:
         "sql": "페이지 안 Monaco 편집기와 sql.js",
         "google_docs": "Google 문서",
         "companion": f"설치된 프로그램 {assignment.tool_config.get('program', '')}".strip(),
+        "workspace": "작업공간(여러 파일, 코드 실행, AI 수정안)",
     }.get(assignment.tool_name, assignment.tool_name)
     comps = "\n".join(
         f"- {c.name}: {c.description or '설명 없음'}" for c in assignment.competencies

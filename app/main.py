@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from .ai.client import ai_client
 from .config import settings
 from .db import init_db
-from .routers import assignments, auth, companion, enrollments, google, learning, professor, tasks, tests
+from .routers import assignments, auth, companion, enrollments, google, learning, onlyoffice, professor, tasks, tests, workspace
 
 
 @asynccontextmanager
@@ -38,6 +38,8 @@ app.include_router(learning.router)
 app.include_router(tasks.router)
 app.include_router(companion.router)
 app.include_router(google.router)
+app.include_router(workspace.router)
+app.include_router(onlyoffice.router)
 
 
 @app.get("/api/health")
@@ -49,6 +51,7 @@ def health() -> dict[str, object]:
         "model": settings.ai_model,
         "google_available": google.configured(),
         "companion_download": (settings.downloads_dir / "companion.exe").exists(),
+        "onlyoffice_available": onlyoffice.configured(),
     }
 
 

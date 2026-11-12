@@ -84,6 +84,21 @@ docker compose up -d --build
 
 컨테이너 하나가 8000 포트로 API와 화면을 함께 서비스한다. 데이터는 `app-data` 볼륨에 남는다.
 
+## 4-1. 자리 4 작업공간 (feat/workspace-stage)
+
+과제 단계에서 AI 사용을 막지 않고, 대신 AI를 어떻게 썼는지 전부 기록하는 도구다. 여러 파일, 자동 커밋, AI 수정안, Docker 코드 실행을 한 화면에서 쓴다.
+
+- API: `app/routers/workspace.py` (`/api/enrollments/{id}/workspace/...`)
+- 기록: 커밋은 기존 `artifact_versions`(source=`workspace`)에 남기므로 교수 화면과 요약, 의심 신호가 그대로 읽는다. `meta.author`는 human, ai, paste, run 중 하나다. 원본 이벤트는 `task_events`, AI 수정안은 `ai_proposals`에 남는다.
+- 커밋 시점은 프런트가 정한다. AI 패널로 포커스 이동, 파일 전환, 실행 직전, AI 요청 직전, 30초 무입력, 5분마다 강제, 붙여넣기. 내용이 같으면 서버가 커밋하지 않는다.
+- AI 수정안: `app/workspace/ai.py`가 구조화 출력으로 수정 범위(줄 번호)와 새 내용을 받는다. 서버는 제안으로만 저장하고, 학생이 수락하면 AI 커밋, 고쳐서 반영하면 직접 커밋(AI 원안을 함께 남김), 거절하면 이벤트만 남긴다.
+- 코드 실행: `app/workspace/runner.py`. Python, C++, Java를 네트워크 없는 컨테이너에서 메모리, CPU, 프로세스 수, 시간을 제한해 돌린다. Python은 `test_*.py`의 test_ 함수로, 그 밖에는 과제 설정 `tests`의 입력과 기대 출력으로 채점한다. Docker Desktop이 켜져 있어야 하고, `scripts/pull_run_images.sh`로 이미지를 미리 받아 둔다.
+- 과제 설정: `tool_slot=4`, `tool_name="workspace"`, `tool_config={"files": [{"path", "content", "readonly"}], "tests": [{"name", "stdin", "expected"}]}`
+- 시연 데이터: `DEMO_PASSWORD=비밀번호 .venv/bin/python scripts/seed_workspace_demo.py --reset` 으로 학생을 과제 단계에 바로 넣는다.
+- 보고서(docx): `app/routers/onlyoffice.py`. ONLYOFFICE Document Server 를 작업공간 안에 띄워 docx 를 그대로 편집한다. 원본 docx 는 media 폴더에, 문단 텍스트는 `workspace_files.content` 에 두고 텍스트로 diff 한다. 저장 콜백(강제 저장 status 6, 세션 종료 status 2)마다 텍스트가 바뀌었으면 커밋한다. 우리 쪽 커밋 시점에는 프런트가 `/doc-forcesave` 를 부르고, 백엔드가 Document Server 에 forcesave 명령을 보낸다. 편집기 안 입력은 키 단위로 받을 수 없으므로 보고서의 사람 수정은 저장 단위로 기록되고, 붙여넣기는 구분하지 못한다.
+- Document Server 실행: `.env` 에 `ONLYOFFICE_JWT_SECRET` 을 넣고 `./scripts/onlyoffice.sh`. Colima 에서는 `BACKEND_URL_FOR_ONLYOFFICE=http://host.lima.internal:8000`, Docker Desktop 에서는 `host.docker.internal`. 무료 Community 버전은 동시 접속 수 제한이 있어 시연 규모에서만 쓴다.
+- 아직 없는 것: 보고서 AI 수정안(문단 단위), PDF 변환 제출.
+
 ## 5. 보조 프로그램
 
 `companion/`에 있다. 학생이 자리 3 과제에서 연결 토큰을 발급해 프로그램에 넣으면 지정한 프로그램 창을 일정 간격으로 캡처하고, 저장 폴더에 결과물이 저장될 때마다 버전으로 올리며, 우리 웹의 AI 패널을 항상 위에 띄운다. 기록 범위 동의를 먼저 받는다.

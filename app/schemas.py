@@ -125,7 +125,7 @@ class AssignmentCreate(BaseModel):
     description: str = ""
     deadline: datetime | None = None
     task_kind: TaskKind = "performance"
-    tool_slot: int = Field(default=0, ge=0, le=3)
+    tool_slot: int = Field(default=0, ge=0, le=4)
     tool_name: str = "editor"
     tool_config: dict[str, Any] = {}
     pre_time_limit_min: int = Field(default=30, ge=1, le=600)
@@ -139,7 +139,7 @@ class AssignmentUpdate(BaseModel):
     deadline: datetime | None = None
     clear_deadline: bool = False
     task_kind: TaskKind | None = None
-    tool_slot: int | None = Field(default=None, ge=0, le=3)
+    tool_slot: int | None = Field(default=None, ge=0, le=4)
     tool_name: str | None = None
     tool_config: dict[str, Any] | None = None
     pre_time_limit_min: int | None = Field(default=None, ge=1, le=600)
