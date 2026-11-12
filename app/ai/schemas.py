@@ -54,6 +54,11 @@ class GradeResult(BaseModel):
     score: int
     rationale: str
     feedback: str
+    # 학생에게 보여 줄 근거. 채점 기준의 어느 부분으로 판정했는지와 학습 자료의 어느 내용이 근거인지를 나눠 적는다
+    criteria_basis: str
+    material_basis: str
+    # 답안에서 틀렸거나 근거가 부족한 부분. 답안에 있는 문장을 그대로 옮긴다
+    wrong_spans: list[str]
 
 
 class CompetencySummary(BaseModel):

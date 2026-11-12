@@ -95,7 +95,10 @@ def answer_check(check_id: int, body: CheckAnswerIn, e: MyEnrollment, db: DB) ->
     item = check.item or {}
     answer = body.answer.strip()
     comp = check.competency
-    if item.get("type") in ("short", "fill", "choice") and answer_matches(item.get("answer", ""), answer):
+    kind = item.get("type")
+    if kind in ("short", "fill", "choice") and answer_matches(
+        item.get("answer", ""), answer, alternatives=kind != "choice"
+    ):
         score, feedback = 100.0, "정답이다"
     else:
         try:

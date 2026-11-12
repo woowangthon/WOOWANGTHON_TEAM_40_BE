@@ -22,6 +22,10 @@ def test_answer_matching() -> None:
     assert answer_matches("SUM|합계", "합 계")
     assert not answer_matches("SUM", "AVG")
     assert not answer_matches("SUM", "")
+    assert answer_matches("a || b", "a || b")
+    # 선택형은 보기 전체가 같을 때만 맞다
+    assert answer_matches("a | b", "a | b", alternatives=False)
+    assert not answer_matches("a | b", "a", alternatives=False)
     assert normalize_answer("Hello World.") == "helloworld"
 
 

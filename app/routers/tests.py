@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from ..ai import services
 from ..ai.client import AIUnavailable
+from ..ai.schemas import GradeResult
 from ..deps import DB, MyEnrollment
 from ..models import Enrollment, TestAnswer, TestAttempt, TestItem
 from ..schemas import ItemPublic, Phase, TestResultOut, TestStartOut, TestSubmitIn
@@ -62,6 +63,22 @@ def start(phase: Phase, e: MyEnrollment, db: DB) -> TestStartOut:
     )
 
 
+@router.get("/{phase}/open", response_model=TestStartOut)
+def open_attempt(phase: Phase, e: MyEnrollment) -> TestStartOut:
+    """시작했지만 아직 제출하지 않은 시험을 돌려준다. 새로 시작하지는 않는다. 화면을 다시 열었을 때 이어 보는 데 쓴다."""
+    attempt = _open_attempt(e, phase)
+    if attempt is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "진행 중인 시험이 없다")
+    a = e.assignment
+    return TestStartOut(
+        attempt_id=attempt.id,
+        phase=phase,
+        started_at=attempt.started_at,
+        time_limit_min=a.pre_time_limit_min if phase == "pre" else a.post_time_limit_min,
+        items=[ItemPublic.model_validate(i) for i in a.items if i.phase == phase],
+    )
+
+
 @router.post("/{phase}/submit", response_model=TestResultOut)
 def submit(phase: Phase, body: TestSubmitIn, e: MyEnrollment, db: DB) -> TestResultOut:
     attempt = _open_attempt(e, phase)
@@ -112,15 +129,19 @@ def grade_attempt(
     for item_id, item in items.items():
         text = (given.get(item_id) or "").strip()
         ans = TestAnswer(attempt_id=attempt.id, item_id=item.id, answer_text=text)
-        if item.type == "choice":
-            ans.score = 100.0 if answer_matches(item.answer, text) else 0.0
+        if item.type in ("choice", "short", "fill"):
+            # 선택형은 자동 채점, 단답형과 완성형은 정답 비교다. 틀렸으면 답 전체를 틀린 부분으로 표시한다
+            correct = answer_matches(item.answer, text, alternatives=item.type != "choice")
+            ans.score = 100.0 if correct else 0.0
             ans.graded_by = "auto"
-        elif item.type in ("short", "fill"):
-            ans.score = 100.0 if answer_matches(item.answer, text) else 0.0
-            ans.graded_by = "auto"
+            ans.detail = {
+                "basis": [{"source": "criteria", "text": "교수가 정한 정답과 비교해 채점했다"}],
+                "wrong_spans": [] if correct or not text else [text],
+            }
         else:
             if not text:
                 ans.score, ans.graded_by, ans.feedback = 0.0, "auto", "답안이 비어 있다"
+                ans.detail = {"basis": [{"source": "criteria", "text": "답안이 비어 있어 0점으로 채점했다"}], "wrong_spans": []}
             else:
                 result = services.grade_free_answer(
                     db, e.assignment, item.competency, item.stem, item.answer, text, item.type
@@ -129,11 +150,23 @@ def grade_attempt(
                 ans.rationale = result.rationale
                 ans.feedback = result.feedback
                 ans.graded_by = "ai"
+                ans.detail = grade_detail(result, text)
         db.add(ans)
         per_comp.setdefault(item.competency_id, []).append(ans.score or 0.0)
     scores = {str(cid): round(sum(v) / len(v), 1) for cid, v in per_comp.items() if v}
     attempt.competency_scores = scores
     attempt.total_score = round(sum(scores.values()) / len(scores), 1) if scores else 0.0
+
+
+def grade_detail(result: GradeResult, answer: str) -> dict[str, object]:
+    """AI 채점 결과에서 학생에게 보여 줄 근거를 출처별로 나눠 담는다. 틀린 부분은 답안에 실제로 있는 문장만 남긴다."""
+    basis = [
+        {"source": source, "text": text.strip()}
+        for source, text in (("criteria", result.criteria_basis), ("material", result.material_basis), ("ai", result.feedback))
+        if text and text.strip()
+    ]
+    spans = [s.strip() for s in result.wrong_spans if s and s.strip() and s.strip() in answer]
+    return {"basis": basis, "wrong_spans": spans[:3]}
 
 
 def _apply_scores(e: Enrollment, attempt: TestAttempt, phase: str) -> None:

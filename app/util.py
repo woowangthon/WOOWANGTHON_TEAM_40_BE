@@ -38,10 +38,17 @@ def normalize_answer(text: str) -> str:
     return t.rstrip(".。!?")
 
 
-def answer_matches(expected: str, given: str) -> bool:
-    """정답은 | 로 구분한 대안을 허용한다."""
+def answer_matches(expected: str, given: str, alternatives: bool = True) -> bool:
+    """단답형과 완성형 정답은 | 로 구분한 대안을 허용한다.
+
+    선택형은 alternatives=False 로 불러 보기 전체가 정답과 같을 때만 맞는 것으로 본다. 보기에 | 가 들어 있어도 나누지 않는다.
+    """
     g = normalize_answer(given)
     if not g:
+        return False
+    if normalize_answer(expected or "") == g:
+        return True
+    if not alternatives:
         return False
     return any(normalize_answer(alt) == g for alt in (expected or "").split("|") if alt.strip())
 

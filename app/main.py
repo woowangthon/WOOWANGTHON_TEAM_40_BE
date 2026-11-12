@@ -11,7 +11,20 @@ from fastapi.staticfiles import StaticFiles
 from .ai.client import ai_client
 from .config import settings
 from .db import init_db
-from .routers import assignments, auth, companion, enrollments, google, learning, onlyoffice, professor, tasks, tests, workspace
+from .routers import (
+    assignments,
+    auth,
+    companion,
+    enrollments,
+    google,
+    learning,
+    onlyoffice,
+    professor,
+    social,
+    tasks,
+    tests,
+    workspace,
+)
 
 
 @asynccontextmanager
@@ -30,6 +43,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(social.router)
 app.include_router(assignments.router)
 app.include_router(professor.router)
 app.include_router(enrollments.router)
