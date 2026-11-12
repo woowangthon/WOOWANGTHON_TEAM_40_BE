@@ -83,7 +83,10 @@ jobs:
       - name: Log in to GHCR
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: $env:GHCR_TOKEN | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+        # Windows PowerShell 5.1 은 코드페이지 65001 에서 파이프 입력 앞에 BOM 을 붙여 토큰이 거부된다
+        run: |
+          [Console]::InputEncoding = New-Object System.Text.UTF8Encoding $false
+          $env:GHCR_TOKEN | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       # 자리 4 작업공간이 학생 코드를 돌릴 때 쓰는 이미지. 미리 받아 두지 않으면 첫 실행이 시간 제한에 걸린다
       - name: Pull code run images
         run: |
