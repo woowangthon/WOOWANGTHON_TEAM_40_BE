@@ -189,6 +189,14 @@ class AssignmentOut(AssignmentBrief):
     rules: list[RuleOut]
 
 
+class MaterialPublic(BaseModel):
+    id: int
+    filename: str
+    size: int
+
+    model_config = {"from_attributes": True}
+
+
 class AssignmentStudentView(BaseModel):
     id: int
     title: str
@@ -206,6 +214,7 @@ class AssignmentStudentView(BaseModel):
     competencies: list[CompetencyPublic]
     student_rules: list[str]
     material_names: list[str]
+    materials: list[MaterialPublic] = []
     professor_name: str
 
 
@@ -262,6 +271,14 @@ class TaskAttemptOut(BaseModel):
     versions: list[VersionOut]
 
 
+class GradeOut(BaseModel):
+    score: float | None
+    comment: str
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class EnrollmentOut(BaseModel):
     id: int
     assignment_id: int
@@ -271,6 +288,8 @@ class EnrollmentOut(BaseModel):
     assignment: AssignmentStudentView
     states: list[CompetencyStateOut]
     attempts: list[TaskAttemptOut]
+    # 교수가 입력한 과제 점수와 코멘트. 입력 전이면 None
+    grade: GradeOut | None = None
 
 
 class EnrollmentBrief(BaseModel):
@@ -305,6 +324,13 @@ class TestSubmitIn(BaseModel):
     answers: list[AnswerIn]
 
 
+class AnswerBasisOut(BaseModel):
+    """채점 근거 한 줄. source 는 criteria 교수 채점 기준, material 학습 자료, ai AI 판단이다."""
+
+    source: Literal["criteria", "material", "ai"]
+    text: str
+
+
 class TestAnswerOut(BaseModel):
     id: int
     item_id: int
@@ -318,6 +344,8 @@ class TestAnswerOut(BaseModel):
     rationale: str
     graded_by: str
     expected_answer: str | None = None
+    basis: list[AnswerBasisOut] = []
+    wrong_spans: list[str] = []
 
 
 class TestResultOut(BaseModel):
@@ -456,14 +484,6 @@ class GradeIn(BaseModel):
     comment: str = ""
 
 
-class GradeOut(BaseModel):
-    score: float | None
-    comment: str
-    updated_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
 class AnswerOverrideIn(BaseModel):
     score: float = Field(ge=0, le=100)
     feedback: str = ""
@@ -483,11 +503,54 @@ class OverviewRow(BaseModel):
     signal_count: int
     grade_score: float | None
     last_submitted_at: datetime | None
+    # 역량 순서대로의 사전평가 점수, 사전평가에서 통과 점수에 못 미친 역량 이름, 사후 점수에서 사전 점수를 뺀 값
+    pre_scores: list[float | None] = []
+    weak_competencies: list[str] = []
+    gain: float | None = None
+    # 학습 단계에서 학생이 보낸 대화 수
+    learning_messages: int = 0
+    submitted: bool = False
+
+
+class CompetencyClassStat(BaseModel):
+    competency_id: int
+    name: str
+    pass_score: int
+    pre_avg: float | None
+    current_avg: float | None
+    post_avg: float | None
+    # 사전평가에서 통과 점수에 못 미친 학생 수와 지금 학습 단계에서 아직 통과하지 못한 학생 수
+    below_count: int
+    learning_count: int
+
+
+class ClassStats(BaseModel):
+    """반 전체 지표. 평균은 응시한 학생만으로 구하고 응시자가 없으면 None이다."""
+
+    enrolled: int
+    pre_taken: int
+    pre_avg: float | None
+    pre_min: float | None
+    pre_max: float | None
+    # 사전평가 총점 분포. 구간은 40 이하, 41에서 55, 56에서 70, 71에서 85, 86 이상
+    pre_distribution: list[int]
+    post_taken: int
+    post_avg: float | None
+    # 사전과 사후를 모두 본 학생의 평균 변화와, 사후가 사전보다 낮은 학생 수
+    gain_avg: float | None
+    dropped_count: int
+    not_started: int
+    learning_now: int
+    learning_done: int
+    submitted_count: int
+    graded_count: int
+    competencies: list[CompetencyClassStat]
 
 
 class OverviewOut(BaseModel):
     assignment: AssignmentBrief
     stage_counts: dict[str, int]
+    stats: ClassStats
     rows: list[OverviewRow]
 
 

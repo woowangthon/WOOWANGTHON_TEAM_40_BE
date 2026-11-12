@@ -44,7 +44,7 @@ AI 우왕톤 출품작의 서버다. 주제는 "AI는 동료가 될 수 있는�
 ### 직접 구현과 외부 기술의 범위
 
 - 직접 구현: 네 단계 흐름과 역량 기반 스펙 판정, 채점 파이프라인, 산파술 프롬프트와 출력 스키마, 답 노출 판정과 재작성, BM25 자료 검색, 버전 기록, 교수 화면, 보조 프로그램의 창 캡처와 폴더 감시.
-- 외부 기술: Google Gemini API(대화, 채점, 요약, 의심 신호 생성 모델), Google Drive API(문서 수정 이력), Monaco 편집기와 sql.js(브라우저 안 SQL 실행), pywebview와 PyInstaller와 watchdog와 pywin32(보조 프로그램).
+- 외부 기술: Google Gemini API(대화, 채점, 요약, 의심 신호 생성 모델), Google Drive API(문서 수정 이력), Google과 GitHub의 OAuth 2.0 로그인, Monaco 편집기와 sql.js(브라우저 안 SQL 실행), pywebview와 PyInstaller와 watchdog와 pywin32(보조 프로그램).
 - 모킹: 없다. API 키가 없으면 AI 기능은 503으로 안내하고 고정 결과를 보여 주지 않는다. 텍스트와 이미지 비교 화면은 별도 담당자가 구현 중이며 그 전까지 버전 원문과 캡처만 보인다.
 
 ## 4. 실행 방법
@@ -72,6 +72,20 @@ copy env.example .env      # GEMINI_API_KEY 등을 채운다
 set DEMO_PASSWORD=비밀번호
 .venv/Scripts/python scripts/seed_demo.py --server http://localhost:8000
 ```
+
+### 소셜 로그인
+
+Google 계정과 GitHub 계정으로 로그인하고 가입할 수 있다. 구현은 `app/routers/social.py`에 있고 OAuth 2.0 인가 코드 방식이다. 클라이언트 ID와 비밀 값은 `.env`에서만 읽으며 저장소에 넣지 않는다. 값이 없는 공급자는 로그인 화면에 버튼이 나오지 않고 시작 요청은 503으로 안내한다.
+
+1. Google은 Google Cloud 콘솔에서 OAuth 클라이언트를 만들고 `GOOGLE_CLIENT_ID`와 `GOOGLE_CLIENT_SECRET`에 넣는다. 자리 2 Google 문서 연동과 같은 값을 쓴다. 승인된 리디렉션 URI에 `OAUTH_REDIRECT_BASE` 뒤에 `/api/auth/social/google/callback`을 붙인 주소를 더한다.
+2. GitHub는 Settings의 Developer settings에서 OAuth App을 만들고 `GITHUB_CLIENT_ID`와 `GITHUB_CLIENT_SECRET`에 넣는다. 콜백 주소는 `OAUTH_REDIRECT_BASE` 뒤에 `/api/auth/social/github/callback`을 붙인 주소다.
+3. `OAUTH_REDIRECT_BASE`는 이 서버를 외부에서 여는 주소다. 개발 중에는 `http://localhost:8000`이고, 프런트엔드를 5173 포트로 따로 띄우면 `PUBLIC_URL`을 `http://localhost:5173`으로 둔다.
+
+공급자가 확인한 이메일만 받는다. 그 이메일로 소셜 가입한 계정이 있으면 그 계정으로 들어가고, 계정이 없으면 회원가입 화면에서 고른 역할로 계정을 만든다. 로그인 화면에서 소셜 계정을 눌렀는데 계정이 없으면 가입 화면으로 안내한다. 비밀번호로 가입한 계정에는 소셜 로그인으로 들어가지 않는다. 비밀번호 가입은 이메일 주인인지 확인하지 않으므로, 남이 먼저 만들어 둔 계정에 이메일 주인이 들어가는 일을 막기 위해서다.
+
+서버는 60초 동안 한 번만 쓸 수 있는 표를 프런트엔드에 넘기고, 프런트엔드가 그 표를 로그인 토큰으로 바꾼다. 로그인 토큰을 주소에 싣지 않기 위한 단계다. 표와 state는 로그인 토큰과 종류가 달라 로그인 토큰 자리에 넣어도 통하지 않는다. state는 로그인을 시작한 브라우저에 쿠키로 묶으므로, 로그인 화면을 여는 주소와 `OAUTH_REDIRECT_BASE`의 호스트 이름이 같아야 한다. 한쪽을 `localhost`로, 다른 쪽을 `127.0.0.1`로 열면 요청이 만료되었다는 안내가 나온다.
+
+2026-11-12 기준으로 공급자 서버를 가짜로 바꾼 자동 테스트만 통과했고 실제 Google과 GitHub 계정으로는 확인하지 않았다.
 
 ### Docker 배포
 
@@ -112,6 +126,8 @@ py -3.14 -m venv .venv
 
 출력 품질과 오류와 한계의 검증 결과는 시연 과제로 질문 20개를 돌린 뒤 이 절에 기록한다. 아직 실행 전이므로 미검증이다.
 
+2026-11-12에 채점 출력에 학생에게 보여 줄 근거를 더했다. AI는 점수와 함께 채점 기준의 어느 부분으로 판정했는지, 학습 자료의 어느 내용이 근거인지, 답안의 어느 부분이 틀렸는지를 따로 돌려주고, 서버는 틀린 부분 가운데 답안에 실제로 있는 문장만 남긴다. 화면은 근거를 교수 채점 기준, 학습 자료, AI 판단으로 색을 나눠 보여 준다. 자동 테스트는 통과했고, 2026-11-12에 실제 모델로 서술형 답 하나를 채점해 채점 기준 근거와 틀린 부분 세 곳이 돌아오는 것을 한 번 확인했다. 여러 답안에서 이 항목이 얼마나 정확한지는 재지 않아 미검증이다.
+
 알려진 한계:
 
 - 서술형과 논술형 채점은 AI가 교수의 채점 기준으로 하되 교수가 확인하고 고칠 수 있다.
@@ -130,3 +146,6 @@ py -3.14 -m venv .venv
 | pypdf, python-docx, openpyxl | https://pypi.org | 파일 텍스트 추출 |
 | pywebview, PyInstaller, watchdog, pywin32, Pillow | https://pypi.org | 보조 프로그램 |
 | Google Drive API | https://developers.google.com/drive | 자리 2 수정 이력과 내보내기 |
+| Google OAuth 2.0과 OpenID Connect | https://developers.google.com/identity/protocols/oauth2 | 소셜 로그인, 확인된 이메일과 이름만 읽음, 확인일 2026-11-12 |
+| GitHub OAuth Apps | https://docs.github.com/en/apps/oauth-apps | 소셜 로그인, 확인된 기본 이메일과 이름만 읽음, 확인일 2026-11-12 |
+| httpx 0.28.1 | https://www.python-httpx.org | 공급자 서버 호출, BSD |

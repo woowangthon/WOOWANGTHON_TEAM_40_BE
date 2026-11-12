@@ -25,7 +25,10 @@ def get_current_user(
     payload = decode_access_token(creds.credentials)
     if not payload:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "토큰이 유효하지 않다")
-    user = db.get(User, int(payload["sub"]))
+    sub = str(payload.get("sub", ""))
+    if not sub.isdigit():
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "토큰이 유효하지 않다")
+    user = db.get(User, int(sub))
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "사용자를 찾을 수 없다")
     return user

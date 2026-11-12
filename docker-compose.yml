@@ -11,6 +11,8 @@ services:
     env_file:
       - .env
     environment:
+      # .env 에 APP_ENV=development 가 남아 있어도 배포에서는 SECRET_KEY 검사가 켜지게 한다
+      APP_ENV: production
       CORS_ORIGINS: ""
     volumes:
       - app-data:/app/data

@@ -215,6 +215,8 @@ class TestAnswer(Base):
     feedback: Mapped[str] = mapped_column(Text, default="")
     rationale: Mapped[str] = mapped_column(Text, default="")
     graded_by: Mapped[str] = mapped_column(String(20), default="")  # auto | ai | professor
+    # 학생에게 보여 줄 채점 근거와 틀린 부분. {"basis": [{"source", "text"}], "wrong_spans": [문장]} 형태다
+    detail: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
     attempt: Mapped[TestAttempt] = relationship(back_populates="answers")
     item: Mapped[TestItem] = relationship()

@@ -5,11 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
+# 개발용 기본 키. 공개 저장소에 적혀 있으므로 운영에서는 쓸 수 없다
+DEV_SECRET_KEY = "dev-only-secret-changeme"
+MIN_SECRET_LENGTH = 32
 
 
 class Settings(BaseSettings):
@@ -18,7 +21,9 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "학습 도우미"
-    secret_key: str = "dev-only-secret-change-me"
+    # development 또는 production. Docker 이미지는 production으로 돈다
+    app_env: Literal["development", "production"] = "development"
+    secret_key: str = DEV_SECRET_KEY
     access_token_minutes: int = 60 * 24 * 7
     database_url: str = f"sqlite:///{(DATA_DIR / 'app.db').as_posix()}"
     media_dir: Path = DATA_DIR / "media"
@@ -40,6 +45,11 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     google_client_secret: str = ""
     google_redirect_uri: str = "http://localhost:8000/api/google/callback"
+    # 소셜 로그인. Google 은 위의 GOOGLE_CLIENT_ID 와 GOOGLE_CLIENT_SECRET 을 같이 쓴다
+    github_client_id: str = ""
+    github_client_secret: str = ""
+    # 소셜 로그인 공급자가 돌아올 서버 주소. 공급자 콘솔에 등록한 주소와 같아야 한다
+    oauth_redirect_base: str = "http://localhost:8000"
     # 로그인 뒤 돌아갈 프런트엔드 주소. 비우면 같은 서버의 상대 경로로 돌아간다. 개발 중에는 http://localhost:5173
     public_url: str = ""
     downloads_dir: Path = BASE_DIR / "downloads"
@@ -59,6 +69,16 @@ class Settings(BaseSettings):
         if raw in ("", ":memory:") or raw.startswith("/") or Path(raw).is_absolute():
             return v
         return prefix + (BASE_DIR / raw).resolve().as_posix()
+
+    @model_validator(mode="after")
+    def _real_secret_in_production(self) -> Settings:
+        """기본 키나 짧은 키로 운영하면 누구나 로그인 토큰을 만들 수 있으므로 운영 환경에서는 서버 시작을 막는다."""
+        if self.app_env != "production":
+            return self
+        weak = self.secret_key == DEV_SECRET_KEY or self.secret_key.startswith("여기에") or len(self.secret_key) < MIN_SECRET_LENGTH
+        if weak:
+            raise ValueError(f"운영 환경에서는 SECRET_KEY에 {MIN_SECRET_LENGTH}자 이상의 무작위 문자열을 넣어야 한다")
+        return self
 
     @property
     def ai_model(self) -> str:

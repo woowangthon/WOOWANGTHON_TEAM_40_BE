@@ -13,8 +13,11 @@ WORKDIR /app
 COPY backend/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/app ./app
+# 보조 프로그램 설치 파일. /downloads/companion.exe 로 받는다
+COPY backend/downloads ./downloads
 COPY --from=web /web/dist ./frontend-dist
-ENV FRONTEND_DIST=/app/frontend-dist DATABASE_URL=sqlite:////app/data/app.db MEDIA_DIR=/app/data/media
+# 운영 환경에서는 SECRET_KEY가 32자 이상의 무작위 값이 아니면 서버가 시작하지 않는다
+ENV APP_ENV=production FRONTEND_DIST=/app/frontend-dist DATABASE_URL=sqlite:////app/data/app.db MEDIA_DIR=/app/data/media
 RUN mkdir -p /app/data/media
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

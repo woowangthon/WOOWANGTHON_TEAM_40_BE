@@ -14,9 +14,11 @@ from ..models import (
     Enrollment,
     LearningCheck,
     TaskAttempt,
+    TestAnswer,
     TestAttempt,
 )
 from ..schemas import (
+    AnswerBasisOut,
     AssignmentBrief,
     AssignmentOut,
     AssignmentStudentView,
@@ -27,6 +29,7 @@ from ..schemas import (
     ItemOut,
     LearningCheckOut,
     MaterialOut,
+    MaterialPublic,
     RuleOut,
     TaskAttemptOut,
     TestAnswerOut,
@@ -107,6 +110,7 @@ def assignment_student_view(a: Assignment, professor_name: str) -> AssignmentStu
         competencies=[CompetencyPublic.model_validate(c) for c in a.competencies],
         student_rules=student_rules(a),
         material_names=[m.filename for m in a.materials],
+        materials=[MaterialPublic.model_validate(m) for m in a.materials],
         professor_name=professor_name,
     )
 
@@ -169,9 +173,28 @@ def check_out(c: LearningCheck, reveal_answer: bool) -> LearningCheckOut:
     )
 
 
+def answer_basis(a: TestAnswer) -> tuple[list[AnswerBasisOut], list[str]]:
+    """학생에게 보여 줄 채점 근거와 틀린 부분. 근거마다 출처를 붙여 화면에서 색으로 구분하게 한다."""
+    detail = a.detail or {}
+    wrong = [str(s) for s in detail.get("wrong_spans", []) if s]
+    stored = [AnswerBasisOut(**b) for b in detail.get("basis", []) if b.get("text")]
+    if a.graded_by == "professor":
+        # 교수가 점수를 고치면 저장된 근거를 지운다. 남아 있는 근거는 교수가 점수를 그대로 확인한 AI 채점의 근거다
+        own = bool(a.feedback) and all(b.text != a.feedback for b in stored)
+        basis = ([AnswerBasisOut(source="criteria", text=a.feedback or "")] if own else []) + stored
+        return basis or [AnswerBasisOut(source="criteria", text="교수가 답안을 확인하고 점수를 정했다")], wrong
+    if stored:
+        return stored, wrong
+    # 근거를 저장하기 전에 채점한 답안은 채점 방식에서 근거를 만든다
+    if a.graded_by == "ai":
+        return ([AnswerBasisOut(source="ai", text=a.feedback)] if a.feedback else []), wrong
+    return [AnswerBasisOut(source="criteria", text=a.feedback or "교수가 정한 정답과 비교해 채점했다")], wrong
+
+
 def test_result_out(attempt: TestAttempt, enrollment: Enrollment, reveal_answers: bool) -> TestResultOut:
     answers = []
     for a in attempt.answers:
+        basis, wrong_spans = answer_basis(a)
         answers.append(
             TestAnswerOut(
                 id=a.id,
@@ -186,6 +209,8 @@ def test_result_out(attempt: TestAttempt, enrollment: Enrollment, reveal_answers
                 rationale=a.rationale if reveal_answers else "",
                 graded_by=a.graded_by,
                 expected_answer=a.item.answer if reveal_answers else None,
+                basis=basis,
+                wrong_spans=wrong_spans,
             )
         )
     return TestResultOut(

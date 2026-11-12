@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 
 from ..deps import DB, MyEnrollment, Student
 from ..models import Assignment, CompetencyState, Enrollment, Material
-from ..schemas import EnrollmentBrief, EnrollmentOut, JoinIn
+from ..schemas import EnrollmentBrief, EnrollmentOut, GradeOut, JoinIn
 from .common import assignment_student_view, attempt_out, deadline_passed, state_out
 
 router = APIRouter(prefix="/api/enrollments", tags=["enrollments"])
@@ -26,6 +26,7 @@ def enrollment_out(e: Enrollment) -> EnrollmentOut:
         assignment=assignment_student_view(a, _professor_name(a)),
         states=[state_out(s) for s in sorted(e.competency_states, key=lambda s: s.competency.order)],
         attempts=[attempt_out(t) for t in e.task_attempts],
+        grade=GradeOut.model_validate(e.grade) if e.grade else None,
     )
 
 

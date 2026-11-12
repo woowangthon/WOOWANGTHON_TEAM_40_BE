@@ -40,6 +40,7 @@ class FakeAI:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
         self.grade_score = 85
+        self.wrong_spans: list[str] = []
         self.leaks = False
 
     def parse(self, **kwargs: Any) -> Any:
@@ -59,7 +60,14 @@ class FakeAI:
         if model is ai_schemas.RefinedReply:
             return ai_schemas.RefinedReply(content="다시 쓴 질문입니다. 어떤 열이 필요할까요?")
         if model is ai_schemas.GradeResult:
-            return ai_schemas.GradeResult(score=self.grade_score, rationale="근거", feedback="피드백")
+            return ai_schemas.GradeResult(
+                score=self.grade_score,
+                rationale="근거",
+                feedback="피드백",
+                criteria_basis="채점 기준 근거",
+                material_basis="학습 자료 근거",
+                wrong_spans=self.wrong_spans,
+            )
         if model is ai_schemas.ItemDraft:
             return ai_schemas.ItemDraft(
                 competency_name="", type="essay_short", stem="확인 문항입니다", options=[], answer="모범 답안"
