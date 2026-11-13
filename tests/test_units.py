@@ -5,7 +5,7 @@ from fastapi import HTTPException
 
 from app.ai.retrieval import build_context, chunk_text, tokenize
 from app.routers.google import make_state, parse_doc_id, read_state
-from app.util import answer_matches, normalize_answer
+from app.util import answer_matches, normalize_answer, static_file
 
 
 def test_google_doc_id_and_state() -> None:
@@ -49,3 +49,20 @@ def test_context_selects_relevant_chunks_when_large() -> None:
     assert has
     assert "sql.txt" in ctx
     assert len(ctx) <= 3600
+
+
+def test_static_file_stays_inside_root(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """화면 파일 폴더 밖의 파일은 주소를 어떻게 써도 내주지 않는다."""
+    dist = tmp_path / "dist"
+    (dist / "login").mkdir(parents=True)
+    (dist / "index.html").write_text("<html></html>", encoding="utf-8")
+    (dist / "login" / "photo.webp").write_bytes(b"x")
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "app.db").write_bytes(b"secret")
+
+    assert static_file(dist, "login/photo.webp") == (dist / "login" / "photo.webp").resolve()
+    assert static_file(dist, "") is None
+    assert static_file(dist, "login") is None
+    assert static_file(dist, "missing.js") is None
+    for attack in ("../data/app.db", r"..\data\app.db", "login/../../data/app.db", str(tmp_path / "data" / "app.db")):
+        assert static_file(dist, attack) is None, attack

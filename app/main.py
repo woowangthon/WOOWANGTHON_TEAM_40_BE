@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from .ai.client import ai_client
 from .config import settings
 from .db import init_db
+from .util import static_file
 from .routers import (
     assignments,
     auth,
@@ -85,7 +86,5 @@ if (_dist / "index.html").exists():
     def spa(full_path: str, request: Request):  # type: ignore[no-untyped-def]
         if full_path.startswith("api/"):
             return JSONResponse({"detail": "Not Found"}, status_code=404)
-        candidate = _dist / full_path
-        if full_path and candidate.is_file():
-            return FileResponse(candidate)
-        return FileResponse(_dist / "index.html")
+        found = static_file(_dist, full_path)
+        return FileResponse(found if found is not None else _dist / "index.html")

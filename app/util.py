@@ -4,6 +4,7 @@ import re
 import secrets
 import string
 from datetime import datetime, timezone
+from pathlib import Path
 
 
 def utcnow() -> datetime:
@@ -57,3 +58,18 @@ def clamp_score(value: float | int | None) -> float:
     if value is None:
         return 0.0
     return float(max(0, min(100, value)))
+
+
+def static_file(root: Path, relative: str) -> Path | None:
+    """root 폴더 안에 실제로 있는 파일만 돌려준다.
+
+    주소에 .. 이나 절대 경로를 넣어 폴더 밖의 파일을 가리키면 None 을 돌려준다.
+    빌드된 화면 파일을 서비스할 때 데이터 폴더 같은 다른 파일이 새어 나가지 않게 한다.
+    """
+    if not relative:
+        return None
+    base = root.resolve()
+    candidate = (base / relative).resolve()
+    if not candidate.is_relative_to(base) or not candidate.is_file():
+        return None
+    return candidate
