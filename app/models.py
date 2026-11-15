@@ -277,6 +277,7 @@ class TaskAttempt(Base):
     )
     events: Mapped[list[TaskEvent]] = relationship(cascade="all, delete-orphan", order_by="TaskEvent.id")
     proposals: Mapped[list[AIProposal]] = relationship(cascade="all, delete-orphan", order_by="AIProposal.id")
+    chat_attachments: Mapped[list[ChatAttachment]] = relationship(cascade="all, delete-orphan", order_by="ChatAttachment.id")
 
 
 class ArtifactVersion(Base):
@@ -402,6 +403,8 @@ class WorkspaceFile(Base):
     readonly: Mapped[bool] = mapped_column(Boolean, default=False)
     # 보고서(docx)만 쓴다. ONLYOFFICE 편집 세션이 끝나 저장될 때마다 1씩 올려 문서 키를 바꾼다
     doc_rev: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # 서버가 docx 를 직접 고친 뒤(AI 수정안 수락)의 문서 키 번호. 이보다 앞선 키의 편집 세션이 보내는 저장본은 버린다
+    doc_floor: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
 
@@ -439,6 +442,25 @@ class AIProposal(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     # 지울 때 수정안을 메시지보다 먼저 지우도록 관계를 알려 준다
+    message: Mapped[ChatMessage | None] = relationship()
+
+
+class ChatAttachment(Base):
+    """과제 단계 AI 채팅에 학생이 붙인 파일. 올리면 먼저 만들어 두고, 메시지를 보낼 때 그 메시지에 묶는다."""
+
+    __tablename__ = "chat_attachments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    attempt_id: Mapped[int] = mapped_column(ForeignKey("task_attempts.id"), index=True)
+    message_id: Mapped[int | None] = mapped_column(ForeignKey("chat_messages.id", ondelete="SET NULL"), nullable=True, index=True)
+    filename: Mapped[str] = mapped_column(String(255))
+    path: Mapped[str] = mapped_column(String(500))
+    mime: Mapped[str] = mapped_column(String(100), default="")
+    size: Mapped[int] = mapped_column(Integer, default=0)
+    kind: Mapped[str] = mapped_column(String(10), default="text")  # text | image
+    extracted_text: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
     message: Mapped[ChatMessage | None] = relationship()
 
 

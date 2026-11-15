@@ -66,6 +66,11 @@ def doc_key(f: WorkspaceFile) -> str:
     return f"ws{f.id}r{f.doc_rev}"
 
 
+def key_rev(key: str, f: WorkspaceFile) -> int | None:
+    m = re.fullmatch(rf"ws{f.id}r(\d+)", key or "")
+    return int(m.group(1)) if m else None
+
+
 # ---------- 학생 화면 ----------
 class DocConfigOut(BaseModel):
     api_url: str
@@ -141,7 +146,9 @@ def doc_forcesave(body: ForceSaveIn, e: MyEnrollment, db: DB) -> ForceSaveOut:
     db.add(ev)
     db.commit()
     start_event = ev.id
-    key = body.key if re.fullmatch(rf"ws{f.id}r\d+", body.key or "") else doc_key(f)
+    rev = key_rev(body.key, f)
+    # AI 수정안을 넣기 전의 세션 키면 그 세션은 이미 버린 것이다. 지금 키로 요청한다
+    key = body.key if rev is not None and rev >= f.doc_floor else doc_key(f)
     # 브라우저 편집기는 방금 입력한 내용을 조금 늦게 서버로 보낸다. 그래서 '변경 없음'이나 '같은 내용'이면
     # 잠깐 기다렸다가 다시 요청한다. 실제 지연은 1~3초라 4.5초까지만 본다.
     give_up = time.time() + 4.5
@@ -254,6 +261,12 @@ def _save_callback(file_id: int, content: bytes, state: int, userdata: str, data
 
         attempt = db.get(TaskAttempt, f.attempt_id)
         if attempt is None:
+            return
+        rev = key_rev(str(data.get("key") or ""), f)
+        if rev is not None and rev < f.doc_floor:
+            # 서버가 docx 를 고친 뒤(AI 수정안 수락)에 옛 세션이 보낸 저장본이다. 받으면 AI 가 넣은 내용을 덮어쓴다
+            db.add(TaskEvent(attempt_id=attempt.id, file_path=f.path, kind="doc_callback_stale", payload={"status": state, "key": data.get("key")}))
+            db.commit()
             return
         text = save_doc(f, content)
         trigger = userdata or ("doc_close" if state == 2 else "doc_save")

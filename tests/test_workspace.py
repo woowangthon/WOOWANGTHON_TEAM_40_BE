@@ -240,3 +240,84 @@ def test_runner_nested_folders_docker() -> None:
     assert (t["passed"], t["total"]) == (1, 1), t
     cpp = {"src/main.cpp": '#include "util.h"\n#include <iostream>\nint main(){ std::cout << twice(21) << "\\n"; }', "include/util.h": "inline int twice(int x){ return x * 2; }"}
     assert runner.run(cpp, "cpp", "src/main.cpp", "run", "", [])["stdout"].strip() == "42"
+
+
+def test_chat_attachments_and_materials(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """채팅 첨부(글, 그림)와 교수 학습 자료가 AI 에게 넘어가고, 첨부는 메시지에 묶여 기록된다."""
+    from app.models import Material
+
+    h, eid = _setup(client)
+    base = f"/api/enrollments/{eid}/workspace"
+    client.get(base, headers=h)
+    with SessionLocal() as db:
+        aid = db.query(Assignment).first().id  # type: ignore[union-attr]
+        db.add(Material(assignment_id=aid, filename="3주차_스케줄링.pdf", path="x", extracted_text="Round Robin 은 시간 할당량 quantum 만큼만 실행한다."))
+        db.commit()
+
+    seen: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        "app.workspace.ai.ai_client.parse",
+        lambda **kw: seen.append(kw) or WorkspaceReply(content="봤다", has_edit=False, edit_path="", start_line=0, end_line=0, new_text="", edit_reason=""),
+    )
+    # 받을 수 없는 형식, 글 파일, 그림
+    assert client.post(f"{base}/chat/attachments", files={"file": ("a.exe", b"MZ")}, headers=h).status_code == 400
+    t = client.post(f"{base}/chat/attachments", files={"file": ("메모.txt", "실험 조건: quantum 2, 4, 8".encode())}, headers=h)
+    assert t.status_code == 201, t.text
+    assert t.json()["kind"] == "text" and t.json()["chars"] > 0
+    png = b"\x89PNG\r\n\x1a\n" + b"0" * 20
+    img = client.post(f"{base}/chat/attachments", files={"file": ("graph.png", png, "image/png")}, headers=h).json()
+    gone = client.post(f"{base}/chat/attachments", files={"file": ("x.md", b"# x")}, headers=h).json()
+    assert client.delete(f"{base}/chat/attachments/{gone['id']}", headers=h).status_code == 204
+
+    r = client.post(f"{base}/chat", json={"message": "", "path": "main.py", "attachment_ids": [t.json()["id"], img["id"]]}, headers=h)
+    assert r.status_code == 200, r.text
+    me = r.json()["messages"][0]
+    assert me["content"] == "첨부한 파일을 봐 줘."
+    assert [a["name"] for a in me["meta"]["attachments"]] == ["메모.txt", "graph.png"]
+    system = seen[-1]["system"]
+    assert "학습 자료 발췌" in system and "3주차_스케줄링.pdf" in system  # 교수 자료
+    assert "quantum 2, 4, 8" in system  # 첨부한 글
+    last = seen[-1]["messages"][-1]
+    assert last["images"] == [("image/png", png)] and "[첨부: 메모.txt, graph.png]" in last["content"]
+
+    # 이미 보낸 첨부는 다시 쓰거나 지울 수 없다
+    assert client.post(f"{base}/chat", json={"message": "또", "attachment_ids": [img["id"]]}, headers=h).status_code == 400
+    assert client.delete(f"{base}/chat/attachments/{img['id']}", headers=h).status_code == 404
+    # 다음 질문에서도 앞서 붙인 글 파일은 짧게 참고한다. 그림은 다시 보내지 않는다
+    client.post(f"{base}/chat", json={"message": "아까 메모 기준으로"}, headers=h)
+    assert "앞선 메시지에 첨부한 파일" in seen[-1]["system"] and "quantum 2, 4, 8" in seen[-1]["system"]
+    assert "images" not in seen[-1]["messages"][-1] and "graph.png 은 지금 볼 수 없다" in seen[-1]["system"]
+
+    # 긴 파일은 다음 질문에서 앞부분이 아니라 질문과 관련된 부분을 찾아 넣는다
+    long_text = ("서론 문단. " * 400 + "\n") * 3 + "SCR 공식은 문맥 교환 횟수 곱하기 교환 비용 나누기 전체 시간이다.\n" + ("부록 문단. " * 400 + "\n") * 3
+    big = client.post(f"{base}/chat/attachments", files={"file": ("강의.txt", long_text.encode())}, headers=h).json()
+    client.post(f"{base}/chat", json={"message": "이거 봐", "attachment_ids": [big["id"]]}, headers=h)
+    client.post(f"{base}/chat", json={"message": "SCR 공식이 뭐였지?"}, headers=h)
+    assert "SCR 공식은 문맥 교환 횟수" in seen[-1]["system"]
+    assert client.post(f"{base}/chat", json={"message": "  "}, headers=h).status_code == 422
+
+
+def test_problem_file_and_starter_tags(client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+    """교수가 '과제 문제' 에 첨부한 파일과 시작 파일 표시가 AI 에게 넘어간다."""
+    h, eid = _setup(client)
+    base = f"/api/enrollments/{eid}/workspace"
+    client.get(base, headers=h)
+    problem = tmp_path / "문제.md"
+    problem.write_text("요구사항: add 는 음수도 처리해야 한다. 보고서는 2쪽 이내.", encoding="utf-8")
+    with SessionLocal() as db:
+        a = db.query(Assignment).first()
+        assert a is not None
+        a.attachment_name, a.attachment_path = "문제.md", str(problem)
+        db.commit()
+    seen: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        "app.workspace.ai.ai_client.parse",
+        lambda **kw: seen.append(kw) or WorkspaceReply(content="정리", has_edit=False, edit_path="", start_line=0, end_line=0, new_text="", edit_reason=""),
+    )
+    client.post(f"{base}/files", json={"path": "extra.py"}, headers=h)
+    client.post(f"{base}/chat", json={"message": "과제 파일 내용 정리해줘"}, headers=h)
+    system = seen[-1]["system"]
+    assert "교수가 올린 과제 문제 파일: 문제.md" in system and "음수도 처리" in system
+    assert "main.py (교수가 준 시작 파일)" in system and "test_main.py (교수가 준 시작 파일, 읽기 전용)" in system
+    assert "extra.py (학생이 만든 파일)" in system
+    assert "마감:" in system

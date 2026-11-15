@@ -15,20 +15,23 @@ from datetime import datetime
 from pathlib import PurePosixPath
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, File, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..ai.client import AIUnavailable, ai_client
 from ..deps import DB, MyEnrollment
-from ..models import AIProposal, ArtifactVersion, ChatMessage, Enrollment, TaskAttempt, TaskEvent, WorkspaceFile
+from ..ai.extract import TEXT_SUFFIXES
+from ..ai.extract import extract_text as extract_file_text
+from ..models import AIProposal, ArtifactVersion, ChatAttachment, ChatMessage, Enrollment, TaskAttempt, TaskEvent, WorkspaceFile
+from ..storage import remove_file, save_upload
 from ..schemas import ChatMessageOut
 from ..util import utcnow
 from ..workspace import ai as ws_ai
 from ..workspace import envs, runner
 from ..workspace.diff import line_diff, replace_lines, slice_lines
-from ..workspace.docx_store import doc_path, ensure_doc, save_doc
+from ..workspace.docx_store import DocEditError, apply_lines, doc_path, ensure_doc, save_doc
 from .common import ai_error, deadline_passed, message_out
 from .tasks import current_attempt, ensure_first_attempt, require_open_attempt, require_task_stage
 
@@ -128,9 +131,23 @@ class PasteSourceIn(BaseModel):
 
 
 class ChatIn(BaseModel):
-    message: str = Field(min_length=1, max_length=8000)
+    message: str = Field(default="", max_length=8000)
     path: str = ""
     selection: dict[str, Any] | None = None
+    attachment_ids: list[int] = Field(default_factory=list, max_length=5)
+
+
+class AttachmentOut(BaseModel):
+    id: int
+    filename: str
+    size: int
+    kind: str
+    chars: int
+
+
+# 채팅 첨부로 받는 파일. 문서와 코드는 글자를 뽑아 AI 에게 주고, 그림은 그대로 보낸다
+DOC_SUFFIXES = {".pdf", ".docx", ".xlsx", ".xlsm"}
+IMAGE_MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
 
 
 class ChatOut(BaseModel):
@@ -146,6 +163,7 @@ class ProposalResult(BaseModel):
     proposal: ProposalOut
     file: FileOut | None = None
     commit: CommitOut | None = None
+    doc_key: str | None = None  # 보고서를 고쳤으면 편집기가 다시 열 때 쓸 새 문서 키
 
 
 class RunIn(BaseModel):
@@ -511,19 +529,65 @@ def add_events(body: list[EventIn], e: MyEnrollment, db: DB) -> None:
     db.commit()
 
 
+@router.post("/chat/attachments", response_model=AttachmentOut, status_code=status.HTTP_201_CREATED)
+async def upload_attachment(e: MyEnrollment, db: DB, file: UploadFile = File(...)) -> AttachmentOut:
+    """채팅에 붙일 파일을 먼저 올린다. 보낼 때 attachment_ids 로 메시지에 묶는다."""
+    attempt = _open(db, e)
+    suffix = PurePosixPath(file.filename or "").suffix.lower()
+    if suffix in IMAGE_MIME:
+        kind, limit = "image", 5
+    elif suffix in DOC_SUFFIXES or suffix in TEXT_SUFFIXES:
+        kind, limit = "text", 10
+    else:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "PDF, Word, Excel, 텍스트와 코드 파일, PNG, JPG, WEBP 그림만 붙일 수 있다")
+    path, original, size = await save_upload(file, f"workspace/attempt{attempt.id}/chat", limit)
+    text = extract_file_text(path)[:200_000] if kind == "text" else ""
+    a = ChatAttachment(
+        attempt_id=attempt.id, filename=original, path=str(path), mime=IMAGE_MIME.get(suffix, file.content_type or ""),
+        size=size, kind=kind, extracted_text=text,
+    )  # fmt: skip
+    db.add(a)
+    db.commit()
+    db.refresh(a)
+    return AttachmentOut(id=a.id, filename=a.filename, size=a.size, kind=a.kind, chars=len(text))
+
+
+@router.delete("/chat/attachments/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_attachment(attachment_id: int, e: MyEnrollment, db: DB) -> None:
+    """보내기 전에 뺀 첨부. 이미 보낸 메시지의 첨부는 기록이라 지우지 않는다."""
+    attempt = _open(db, e)
+    a = db.get(ChatAttachment, attachment_id)
+    if a is None or a.attempt_id != attempt.id or a.message_id is not None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "지울 수 있는 첨부가 없다")
+    remove_file(a.path)
+    db.delete(a)
+    db.commit()
+
+
 @router.post("/chat", response_model=ChatOut)
 def chat(body: ChatIn, e: MyEnrollment, db: DB) -> ChatOut:
     attempt = _open(db, e)
-    text = body.message.strip()
+    ids = list(dict.fromkeys(body.attachment_ids))
+    files = [a for a in attempt.chat_attachments if a.id in ids and a.message_id is None]
+    if len(files) != len(ids):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "첨부 파일을 찾지 못했다. 다시 올려 주세요")
+    text = body.message.strip() or ("첨부한 파일을 봐 줘." if files else "")
+    if not text:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "메시지를 적어 주세요")
     student = ChatMessage(
         enrollment_id=e.id, stage="task", attempt_no=attempt.attempt_no, role="student", content=text,
-        meta={"workspace": True, "path": body.path, "selection": body.selection},
+        meta={
+            "workspace": True, "path": body.path, "selection": body.selection,
+            "attachments": [{"id": a.id, "name": a.filename, "kind": a.kind, "size": a.size} for a in files],
+        },
     )  # fmt: skip
     db.add(student)
-    db.add(TaskEvent(attempt_id=attempt.id, file_path=body.path, kind="ai_request", payload={"selection": body.selection, "chars": len(text)}))
+    db.add(TaskEvent(attempt_id=attempt.id, file_path=body.path, kind="ai_request", payload={"selection": body.selection, "chars": len(text), "attachments": [a.filename for a in files]}))
     db.flush()
+    for a in files:
+        a.message_id = student.id
     try:
-        r = ws_ai.reply(db, e, attempt, list(attempt.workspace_files), text, body.path, body.selection)
+        r = ws_ai.reply(db, e, attempt, list(attempt.workspace_files), text, body.path, body.selection, files)
     except AIUnavailable as exc:
         db.rollback()
         raise ai_error(exc) from exc
@@ -536,10 +600,16 @@ def chat(body: ChatIn, e: MyEnrollment, db: DB) -> ChatOut:
         valid = (
             target is not None
             and not target.readonly
-            and target.kind == "code"
             and 1 <= r.start_line <= n_lines + 1
             and r.start_line - 1 <= r.end_line <= n_lines
         )
+        if valid and target is not None and target.kind == "doc":
+            # 보고서는 실제로 적용해 보고 안 되는 수정안(그림이 든 문단, 칸 수가 틀린 표 행 등)은 받지 않는다
+            try:
+                apply_lines(ensure_doc(target).read_bytes(), r.start_line, r.end_line, r.new_text.rstrip("\n"))
+            except DocEditError as exc:
+                valid = False
+                note = f"\n\n(이 수정안은 보고서에 넣을 수 없었다: {exc})"
         if valid and target is not None:
             proposal = AIProposal(
                 attempt_id=attempt.id,
@@ -551,12 +621,12 @@ def chat(body: ChatIn, e: MyEnrollment, db: DB) -> ChatOut:
                 reason=r.edit_reason.strip(),
                 prompt=text,
             )
-        else:
+        elif not note:
             note = "\n\n(수정안의 위치가 파일과 맞지 않아 적용할 수 없었다. 다시 요청해 주세요.)"
 
     ai_msg = ChatMessage(
         enrollment_id=e.id, stage="task", attempt_no=attempt.attempt_no, role="ai",
-        content=r.content.strip() + note, mode="workspace", question_kind="",
+        content=ws_ai.tidy_reply(r.content.strip()) + note, mode="workspace", question_kind="",
         meta={"workspace": True, "has_edit": proposal is not None},
     )  # fmt: skip
     db.add(ai_msg)
@@ -602,7 +672,18 @@ def accept(proposal_id: int, body: AcceptIn, e: MyEnrollment, db: DB) -> Proposa
         start, end = hits[0] + 1, hits[0] + len(old)
     edited = body.text is not None and body.text.rstrip("\n") != p.new_text
     new_text = body.text.rstrip("\n") if edited and body.text is not None else p.new_text
-    new_content = replace_lines(f.content, start, end, new_text)
+    if f.kind == "doc":
+        # 보고서는 docx 의 해당 문단을 직접 바꾸고, 바뀐 docx 에서 다시 뽑은 텍스트로 커밋한다
+        try:
+            data = apply_lines(ensure_doc(f).read_bytes(), start, end, new_text)
+        except DocEditError as exc:
+            raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+        new_content = save_doc(f, data)
+        # 열려 있던 편집 세션은 옛 내용을 들고 있다. 새 키로 다시 열게 하고, 옛 키의 저장본은 받지 않는다
+        f.doc_rev += 1
+        f.doc_floor = f.doc_rev
+    else:
+        new_content = replace_lines(f.content, start, end, new_text)
     extra = {"proposal_id": p.id, "prompt": p.prompt, "reason": p.reason, "message_id": p.message_id, "edited_from_ai": edited}
     if edited:
         extra["ai_text"] = p.new_text
@@ -618,7 +699,10 @@ def accept(proposal_id: int, body: AcceptIn, e: MyEnrollment, db: DB) -> Proposa
     db.add(TaskEvent(attempt_id=attempt.id, file_path=f.path, kind="ai_edit" if edited else "ai_accept", payload={"proposal_id": p.id}))
     db.commit()
     db.refresh(p)
-    return ProposalResult(proposal=proposal_out(p), file=file_out(f), commit=commit_out(v) if v else None)
+    return ProposalResult(
+        proposal=proposal_out(p), file=file_out(f), commit=commit_out(v) if v else None,
+        doc_key=f"ws{f.id}r{f.doc_rev}" if f.kind == "doc" else None,
+    )  # fmt: skip
 
 
 @router.post("/proposals/{proposal_id}/reject", response_model=ProposalResult)

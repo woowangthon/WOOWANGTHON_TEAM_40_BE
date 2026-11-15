@@ -89,10 +89,12 @@ class AIClient:
     ) -> T:
         from google.genai import types
 
+        # 메시지에 images=[(mime, bytes)] 가 있으면 그림도 함께 보낸다(과제 단계 채팅 첨부)
         contents = [
             types.Content(
                 role="model" if m["role"] == "assistant" else "user",
-                parts=[types.Part.from_text(text=str(m["content"]))],
+                parts=[types.Part.from_text(text=str(m["content"]))]
+                + [types.Part.from_bytes(data=data, mime_type=mime) for mime, data in m.get("images", [])],
             )
             for m in messages
         ]
@@ -135,7 +137,7 @@ class AIClient:
             model=settings.anthropic_model,
             max_tokens=max_tokens,
             system=system,
-            messages=messages,
+            messages=[_anthropic_message(m) for m in messages],
             output_format=output_model,
             output_config={"effort": effort},
         )
@@ -161,3 +163,18 @@ class AIClient:
 
 
 ai_client = AIClient()
+
+
+def _anthropic_message(m: dict[str, Any]) -> dict[str, Any]:
+    """images=[(mime, bytes)] 가 붙은 메시지를 Messages API 의 내용 블록으로 바꾼다. 그림을 글보다 앞에 둔다."""
+    images = m.get("images") or []
+    if not images:
+        return {"role": m["role"], "content": m["content"]}
+    import base64
+
+    blocks: list[dict[str, Any]] = [
+        {"type": "image", "source": {"type": "base64", "media_type": mime, "data": base64.b64encode(data).decode()}}
+        for mime, data in images
+    ]
+    blocks.append({"type": "text", "text": str(m["content"])})
+    return {"role": m["role"], "content": blocks}
