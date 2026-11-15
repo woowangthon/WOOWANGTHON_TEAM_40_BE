@@ -500,7 +500,9 @@ class OverviewRow(BaseModel):
     competency_count: int
     attempt_count: int
     version_count: int
+    # 과제 단계 의심 신호 수와 학습 단계 의심 신호 수를 나눠 센다
     signal_count: int
+    learning_signal_count: int = 0
     grade_score: float | None
     last_submitted_at: datetime | None
     # 역량 순서대로의 사전평가 점수, 사전평가에서 통과 점수에 못 미친 역량 이름, 사후 점수에서 사전 점수를 뺀 값

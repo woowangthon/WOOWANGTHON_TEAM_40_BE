@@ -105,6 +105,14 @@ class FakeAI:
                     ai_schemas.SignalItem(kind="non_sequential", description="한 번에 완성", evidence="버전 2")
                 ]
             )
+        if model is ai_schemas.LearningSignalList:
+            return ai_schemas.LearningSignalList(
+                signals=[
+                    ai_schemas.LearningSignalItem(
+                        kind="score_jump", check_no=1, quote="없는 문장", description="갑자기 높은 점수", evidence="사전 0점"
+                    )
+                ]
+            )
         raise AssertionError(f"알 수 없는 출력 모델 {model}")
 
 

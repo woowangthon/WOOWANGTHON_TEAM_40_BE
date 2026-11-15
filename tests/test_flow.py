@@ -203,6 +203,7 @@ def test_full_flow(client: TestClient, fake_ai: FakeAI) -> None:
     assert ov["stage_counts"]["done"] == 1
     row = ov["rows"][0]
     assert row["attempt_count"] == 2 and row["version_count"] == 2 and row["signal_count"] == 2
+    assert row["learning_signal_count"] == 1
 
     r = client.get(f"/api/assignments/{aid}/students/{eid}", headers=prof)
     assert r.status_code == 200, r.text
@@ -212,13 +213,23 @@ def test_full_flow(client: TestClient, fake_ai: FakeAI) -> None:
     assert detail["summaries"][1]["attempt_no"] == 1 and detail["summaries"][2]["attempt_no"] == 2
     assert detail["checks"][0]["item"]["answer"] == "모범 답안"
     assert len(detail["messages"]) == 4
+    learning_sig = [x for x in detail["signals"] if x["evidence"].get("stage") == "learning"]
+    assert len(learning_sig) == 1 and learning_sig[0]["attempt_no"] == 0
+    # 답에 없는 문장은 표시하지 않는다
+    assert learning_sig[0]["evidence"]["quote"] == ""
+    assert learning_sig[0]["evidence"]["check_id"] == detail["checks"][0]["id"]
+    r = client.post(f"/api/assignments/{aid}/students/{eid}/learning-review", headers=prof)
+    assert r.status_code == 200, r.text
+    again = r.json()
+    assert len([x for x in again["signals"] if x["evidence"].get("stage") == "learning"]) == 1
+    assert len([x for x in again["summaries"] if x["kind"] == "learning"]) == 1
 
     r = client.get("/api/assignments/dashboard", headers=prof)
     assert r.status_code == 200, r.text
     dash = r.json()
     assert dash["assignment_count"] == 1 and dash["student_count"] == 1
     assert dash["rows"][0]["submitted_count"] == 1 and dash["rows"][0]["ungraded_count"] == 1
-    assert dash["ungraded_count"] == 1 and dash["signal_count"] == 2
+    assert dash["ungraded_count"] == 1 and dash["signal_count"] == 3
 
     r = client.put(f"/api/assignments/{aid}/students/{eid}/grade", json={"score": 88, "comment": "좋다"}, headers=prof)
     assert r.status_code == 200 and r.json()["score"] == 88

@@ -33,6 +33,7 @@ from .schemas import (
     ItemDraft,
     ItemDraftList,
     LeakJudgement,
+    LearningSignalList,
     ProcessSummary,
     RefinedReply,
     SignalList,
@@ -264,7 +265,11 @@ def _states_text(states: list[CompetencyState]) -> str:
     return "\n".join(lines) or "없음"
 
 
-def summarize_learning(db: Session, enrollment: Enrollment) -> AISummary:
+def _learning_signals_text(signals: list[Signal]) -> str:
+    return "\n".join(f"- [{s.kind}] {s.description} 근거: {s.evidence.get('text', '')}" for s in signals) or "없음"
+
+
+def summarize_learning(db: Session, enrollment: Enrollment, signals: list[Signal] | None = None) -> AISummary:
     chats = [m for m in enrollment.messages if m.stage == "learning"]
     chat_text = "\n".join(
         f"{'학생' if m.role == 'student' else 'AI'}[{m.mode or '-'}]: {m.content[:400]}" for m in chats[-60:]
@@ -275,7 +280,7 @@ def summarize_learning(db: Session, enrollment: Enrollment) -> AISummary:
     ) or "확인 문항 없음"
     body = (
         f"역량 상태:\n{_states_text(enrollment.competency_states)}\n\n확인 문항 결과:\n{checks_text}\n\n"
-        f"학습 대화:\n{chat_text}"
+        f"학습 대화:\n{chat_text}\n\n학습 단계 의심 신호:\n{_learning_signals_text(signals or [])}"
     )
     result = ai_client.parse(
         purpose="summary_learning",
@@ -321,6 +326,108 @@ def summarize_task(db: Session, enrollment: Enrollment, attempt: TaskAttempt) ->
     return AISummary(
         enrollment_id=enrollment.id, kind="task", attempt_no=attempt.attempt_no, content=result.model_dump()
     )
+
+
+# ---------- 학습 단계 의심 신호 ----------
+# 답 길이를 걸린 초로 나눈 값이 이보다 크면 직접 쓰기 어려운 속도로 본다. 사람이 한국어를 빠르게 쳐도 초당 5자 안팎이다
+PASTE_CHARS_PER_SEC = 8.0
+PASTE_MIN_CHARS = 40
+
+
+def is_learning_signal(s: Signal) -> bool:
+    return s.attempt_no == 0 and (s.evidence or {}).get("stage") == "learning"
+
+
+def _check_facts(enrollment: Enrollment) -> list[tuple[LearningCheck, dict[str, Any]]]:
+    """확인 문항마다 사전 점수, 걸린 시간, 그 전 대화 수 같은 판단 재료를 모은다."""
+    pre = {s.competency_id: s.pre_score for s in enrollment.competency_states}
+    student_msgs = [m for m in enrollment.messages if m.stage == "learning" and m.role == "student"]
+    out: list[tuple[LearningCheck, dict[str, Any]]] = []
+    for c in enrollment.checks:
+        if c.answered_at is None or not c.answer_text:
+            continue
+        seconds = max((c.answered_at - c.created_at).total_seconds(), 1.0)
+        chars = len(c.answer_text.strip())
+        before = [m for m in student_msgs if m.created_at <= c.created_at]
+        out.append(
+            (
+                c,
+                {
+                    "competency": c.competency.name,
+                    "pre": pre.get(c.competency_id),
+                    "score": c.score,
+                    "seconds": round(seconds),
+                    "chars": chars,
+                    "speed": round(chars / seconds, 1),
+                    "chats_before": len(before),
+                },
+            )
+        )
+    return out
+
+
+def detect_learning_signals(db: Session, enrollment: Enrollment) -> list[Signal]:
+    facts = _check_facts(enrollment)
+    if not facts:
+        return []
+    chats = [m for m in enrollment.messages if m.stage == "learning" and m.role == "student"]
+    chat_text = "\n".join(f"학생: {m.content[:300]}" for m in chats[-40:]) or "대화 없음"
+    lines = []
+    for i, (c, f) in enumerate(facts, 1):
+        pre = f["pre"] if f["pre"] is not None else "미측정"
+        lines.append(
+            f"### 확인 문항 {i} [{f['competency']}]\n사전평가 점수 {pre}, 확인 문항 점수 {f['score']}, "
+            f"문항을 받고 답하기까지 {f['seconds']}초, 답 {f['chars']}자, 초당 {f['speed']}자, 문항 전 학생 대화 {f['chats_before']}회\n"
+            f"문항: {str(c.item.get('stem', ''))[:300]}\n학생 답: {(c.answer_text or '')[:1200]}"
+        )
+    body = "확인 문항:\n" + "\n\n".join(lines) + f"\n\n학생이 학습 대화에서 쓴 말:\n{chat_text}"
+    result = ai_client.parse(
+        purpose="signals_learning",
+        system=prompts.learning_signal_system(),
+        messages=[{"role": "user", "content": body}],
+        output_model=LearningSignalList,
+        effort=settings.ai_effort_judge,
+        max_tokens=2000,
+        db=db,
+    )
+    signals: list[Signal] = []
+    flagged: set[int] = set()
+    for item in result.signals:
+        if not 1 <= item.check_no <= len(facts):
+            continue
+        c, _ = facts[item.check_no - 1]
+        # 답에 실제로 있는 문장만 표시한다. 없으면 표시 없이 설명만 남긴다
+        quote = item.quote.strip()
+        if quote not in (c.answer_text or ""):
+            quote = ""
+        flagged.add(c.id)
+        signals.append(
+            Signal(
+                enrollment_id=enrollment.id,
+                attempt_no=0,
+                kind=item.kind,
+                description=item.description,
+                evidence={"stage": "learning", "check_id": c.id, "quote": quote, "text": item.evidence},
+            )
+        )
+    # 모델이 놓쳐도 사람이 칠 수 없는 속도로 들어온 긴 답은 규칙으로 표시한다
+    for c, f in facts:
+        if c.id not in flagged and f["chars"] >= PASTE_MIN_CHARS and f["speed"] > PASTE_CHARS_PER_SEC:
+            signals.append(
+                Signal(
+                    enrollment_id=enrollment.id,
+                    attempt_no=0,
+                    kind="paste_like",
+                    description="답 길이에 비해 문항을 받은 뒤 답하기까지 걸린 시간이 짧다.",
+                    evidence={
+                        "stage": "learning",
+                        "check_id": c.id,
+                        "quote": "",
+                        "text": f"{f['chars']}자를 {f['seconds']}초 만에 제출, 초당 {f['speed']}자",
+                    },
+                )
+            )
+    return signals
 
 
 # ---------- 위반 의심 신호 ----------
@@ -386,6 +493,8 @@ __all__ = [
     "summarize_learning",
     "summarize_task",
     "detect_signals",
+    "detect_learning_signals",
+    "is_learning_signal",
     "new_learning_check",
     "mark_answered",
 ]

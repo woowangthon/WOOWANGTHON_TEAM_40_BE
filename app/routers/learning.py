@@ -125,9 +125,14 @@ def finish(e: MyEnrollment, db: DB) -> LearningStateOut:
     if not all(s.passed for s in e.competency_states):
         raise HTTPException(status.HTTP_409_CONFLICT, "모든 역량이 통과 점수를 넘어야 과제 단계로 갈 수 있다")
     try:
-        summary = services.summarize_learning(db, e)
+        signals = services.detect_learning_signals(db, e)
+    except AIUnavailable:
+        signals = []
+    try:
+        summary = services.summarize_learning(db, e, signals)
     except AIUnavailable as exc:
         raise ai_error(exc) from exc
+    db.add_all(signals)
     db.add(summary)
     e.stage = "task"
     db.commit()

@@ -63,7 +63,8 @@ class GradeResult(BaseModel):
 
 class CompetencySummary(BaseModel):
     competency_name: str
-    status: Literal["sufficient", "in_progress", "insufficient"]
+    # suspected 는 확인 문항 답에 외부 도움 의심 신호가 있어 통과 점수를 그대로 믿기 어려운 역량이다
+    status: Literal["sufficient", "in_progress", "insufficient", "suspected"]
     line: str
 
 
@@ -82,3 +83,17 @@ class SignalItem(BaseModel):
 
 class SignalList(BaseModel):
     signals: list[SignalItem]
+
+
+class LearningSignalItem(BaseModel):
+    kind: Literal["score_jump", "paste_like", "external_help", "other"]
+    # 입력에 준 확인 문항 번호
+    check_no: int
+    # 의심 근거가 되는 학생 답의 문장. 답에 있는 그대로 옮긴다
+    quote: str
+    description: str
+    evidence: str
+
+
+class LearningSignalList(BaseModel):
+    signals: list[LearningSignalItem]

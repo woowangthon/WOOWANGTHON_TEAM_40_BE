@@ -7,6 +7,8 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import FileResponse
 
+from ..ai import services
+from ..ai.client import AIUnavailable
 from ..deps import DB, OwnedAssignment
 from ..models import ArtifactVersion, Enrollment, ProfessorGrade, TestAnswer
 from ..schemas import (
@@ -23,6 +25,7 @@ from ..schemas import (
     UserOut,
 )
 from .common import (
+    ai_error,
     assignment_brief,
     attempt_out,
     check_out,
@@ -118,7 +121,8 @@ def overview(a: OwnedAssignment) -> OverviewOut:
                 competency_count=len(e.competency_states),
                 attempt_count=len(e.task_attempts),
                 version_count=sum(len(t.versions) for t in e.task_attempts),
-                signal_count=len(e.signals),
+                signal_count=sum(1 for s in e.signals if not services.is_learning_signal(s)),
+                learning_signal_count=sum(1 for s in e.signals if services.is_learning_signal(s)),
                 grade_score=e.grade.score if e.grade else None,
                 last_submitted_at=max(submitted) if submitted else None,
                 pre_scores=[states[c.id].pre_score if c.id in states else None for c in comps],
@@ -189,6 +193,28 @@ def student_detail(enrollment_id: int, a: OwnedAssignment, db: DB) -> StudentDet
         signals=[SignalOut.model_validate(s) for s in e.signals],
         grade=GradeOut.model_validate(e.grade) if e.grade else None,
     )
+
+
+@router.post("/students/{enrollment_id}/learning-review", response_model=StudentDetailOut)
+def review_learning(enrollment_id: int, a: OwnedAssignment, db: DB) -> StudentDetailOut:
+    """학습 단계 의심 신호와 학습 요약을 다시 만든다. 이 검사가 생기기 전에 학습을 마친 학생에게 쓴다."""
+    e = _enrollment(a, enrollment_id, db)
+    if e.stage == "learning" or not e.checks:
+        raise HTTPException(status.HTTP_409_CONFLICT, "학습 단계를 마친 학생만 다시 분석할 수 있다")
+    try:
+        signals = services.detect_learning_signals(db, e)
+        summary = services.summarize_learning(db, e, signals)
+    except AIUnavailable as exc:
+        raise ai_error(exc) from exc
+    for s in [s for s in e.signals if services.is_learning_signal(s)]:
+        db.delete(s)
+    for old in [s for s in e.summaries if s.kind == "learning"]:
+        db.delete(old)
+    db.add_all(signals)
+    db.add(summary)
+    db.commit()
+    db.refresh(e)
+    return student_detail(enrollment_id, a, db)
 
 
 @router.put("/students/{enrollment_id}/grade", response_model=GradeOut)
